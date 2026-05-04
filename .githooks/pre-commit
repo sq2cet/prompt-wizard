@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Pre-commit hook: run the sanitisation scan before allowing a commit.
+# Activate with: git config core.hooksPath .githooks
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+if ! python3 build.py scan; then
+  echo
+  echo "Pre-commit hook: sanitisation scan failed. Commit blocked."
+  echo "Fix the offending file(s) and try again."
+  exit 1
+fi

@@ -1,0 +1,31 @@
+# OS / editor artefacts
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+
+# Cloud-sync lock and conflict files
+~$*
+*.tmp
+.~lock.*
+*conflict*
+*.crdownload
+
+# Build artefacts (the deliverable HTML is built, not source — keep it gitignored;
+# only release artefacts are committed under a release tag)
+/dist/
+/build/
+*.bak
+
+# Tests
+.pytest_cache/
+__pycache__/
+*.pyc
+node_modules/
+coverage/
+
+# Local-only state
+session-notes.md
+.env
+.env.local

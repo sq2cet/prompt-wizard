@@ -1,0 +1,23 @@
+# Structure example for the forbidden-terms list.
+#
+# The CANONICAL list is intentionally NOT committed to this repository.
+# Listing the very terms we want to keep out would defeat the purpose.
+#
+# The canonical list lives in two places:
+#   - Local development:  $FORBIDDEN_TERMS_FILE env var, or
+#                         ~/.config/prompt-wizard/forbidden-terms.txt
+#   - CI:                 GitHub Actions secret named FORBIDDEN_TERMS,
+#                         materialised to a temp file by the workflow.
+#
+# File format:
+#   - One Python regex per line.
+#   - Empty lines and lines starting with `#` are ignored.
+#   - Patterns are matched as-is; prefix with `(?i)` for case-insensitive.
+#
+# Example (placeholder shapes, NOT the canonical list):
+#
+#   (?i)\bsome-vendor-brand\b
+#   (?i)example-internal-hostname\.example\.com
+#   (?i)category.{0,5}of.{0,5}thing
+#
+# The build/scan refuses to run if no canonical file is found.

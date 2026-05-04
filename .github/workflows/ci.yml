@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  sanitisation:
+    name: Sanitisation gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Materialise forbidden-terms list from secret
+        env:
+          FORBIDDEN_TERMS: ${{ secrets.FORBIDDEN_TERMS }}
+        run: |
+          if [ -z "$FORBIDDEN_TERMS" ]; then
+            echo "ERROR: repository secret FORBIDDEN_TERMS is not set."
+            echo "Add it under repo Settings -> Secrets and variables -> Actions."
+            echo "See src/data/forbidden-terms.example.txt for the format."
+            exit 2
+          fi
+          mkdir -p "$RUNNER_TEMP/cfg"
+          printf '%s\n' "$FORBIDDEN_TERMS" > "$RUNNER_TEMP/cfg/forbidden-terms.txt"
+          echo "FORBIDDEN_TERMS_FILE=$RUNNER_TEMP/cfg/forbidden-terms.txt" >> "$GITHUB_ENV"
+
+      - name: Run sanitisation scan
+        run: python3 build.py scan
