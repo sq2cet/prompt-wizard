@@ -157,43 +157,84 @@
 
     function get() { return state; }
 
-    function _scheduleSave(delay) {
-      saveStatus = "pending";
+    /**
+     * Save and surface a brief "saving" → "ok" pulse so the user sees the
+     * activity. Used after commit-style events and after explicit flushes.
+     */
+    function _saveAndPulse() {
+      const result = Storage.save(state);
+      const finalStatus =
+        !result.ok ? "error" :
+        result.fallback ? "fallback" : "ok";
+      // Render with "saving" first.
+      saveStatus = "saving";
       _notify();
-      if (saveTimer) clearTimeout(saveTimer);
-      saveTimer = setTimeout(_flush, delay);
+      // Settle on the final status after a short delay so the dot visibly blinks.
+      setTimeout(function () {
+        saveStatus = finalStatus;
+        _notify();
+      }, 250);
     }
 
-    function _flush() {
-      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    /**
+     * Quiet save: write to storage, only notify if the save status changed
+     * (e.g. quota exceeded → fallback). Used by debounced text-input saves.
+     */
+    function _saveQuiet() {
       const result = Storage.save(state);
-      if (result.ok && !result.fallback) saveStatus = "ok";
-      else if (result.ok && result.fallback) saveStatus = "fallback";
-      else saveStatus = "error";
-      _notify();
+      const newStatus =
+        !result.ok ? "error" :
+        result.fallback ? "fallback" : "ok";
+      if (newStatus !== saveStatus) {
+        saveStatus = newStatus;
+        _notify();
+      } else {
+        saveStatus = newStatus;
+      }
     }
 
     /**
      * Apply a synchronous in-place mutation. Used for commit-style events
-     * (radio, checkbox, select, mode switch). Saves immediately.
+     * (radio, checkbox, select, mode switch, per-question state buttons).
+     * Saves immediately, pulses the indicator, and re-renders.
      */
     function commit(mutator) {
       mutator(state);
       state.last_modified_at = new Date().toISOString();
-      _scheduleSave(0);
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+      _saveAndPulse();
     }
 
     /**
-     * Apply a free-text mutation. Saves with a debounce so a long comment
-     * is not a write-storm.
+     * Apply a free-text mutation. Saves quietly in the background after
+     * 250 ms of idle. Does NOT re-render — keeps text-input focus stable.
      */
     function deferredCommit(mutator) {
       mutator(state);
       state.last_modified_at = new Date().toISOString();
-      _scheduleSave(250);
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(function () {
+        saveTimer = null;
+        _saveQuiet();
+      }, 250);
     }
 
-    function flushNow() { _flush(); }
+    /**
+     * Flush any pending debounced save and trigger a re-render with a save
+     * pulse. Called from text-input blur handlers so the user sees the save
+     * activity on every focus-out, AND the sidebar status icons update.
+     * The save itself is idempotent — running it again on every blur, even
+     * when nothing changed, is harmless.
+     */
+    function flushPending() {
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+      _saveAndPulse();
+    }
+
+    function flushNow() {
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+      _saveQuiet();
+    }
 
     function reset() {
       state = makeFreshState(Data.questionTaxonomy);
@@ -207,7 +248,7 @@
     function subscribe(fn) { listeners.add(fn); return function () { listeners.delete(fn); }; }
     function _notify() { listeners.forEach(function (fn) { try { fn(state); } catch (e) { console.error(e); } }); }
 
-    return { init, get, commit, deferredCommit, flushNow, reset, getSaveStatus, subscribe };
+    return { init, get, commit, deferredCommit, flushPending, flushNow, reset, getSaveStatus, subscribe };
   })();
 
   // ----- Router --------------------------------------------------------------
@@ -403,8 +444,9 @@
     }
     function _saveLabel() {
       const s = State.getSaveStatus();
-      if (s === "pending") return "Saving…";
-      if (s === "error") return "Save failed — Export answers";
+      if (s === "saving")   return "Saving…";
+      if (s === "pending")  return "Saving…";
+      if (s === "error")    return "Save failed — Export answers";
       if (s === "fallback") return "In-memory only — Export answers";
       return "Saved";
     }
@@ -418,9 +460,14 @@
       if (!phaseState) return "○";
       if (phaseState.mode === "skipped") return "↷";
       if (phaseState.stale_since && !phaseState.user_acknowledged_stale) return "⚠";
-      const answered = Object.keys(phaseState.answers || {}).length;
-      if (answered > 0) return "✓"; // for now, any answer counts as complete
-      return "○";
+      const answers = phaseState.answers || {};
+      let decided = 0;
+      for (const key in answers) {
+        const a = answers[key];
+        if (!a) continue;
+        if (a.state === "answered" || a.state === "skipped" || a.state === "deferred") decided++;
+      }
+      return decided > 0 ? "✓" : "○";
     }
 
     function render(currentId) {
@@ -451,9 +498,339 @@
       if (!ps) return "not started";
       if (ps.mode === "skipped") return "skipped";
       if (ps.stale_since && !ps.user_acknowledged_stale) return "needs review";
-      const n = Object.keys(ps.answers || {}).length;
-      return n > 0 ? "complete" : "not started";
+      const answers = ps.answers || {};
+      for (const key in answers) {
+        const a = answers[key];
+        if (a && (a.state === "answered" || a.state === "skipped" || a.state === "deferred")) {
+          return "in progress";
+        }
+      }
+      return "not started";
     }
+    return { render };
+  })();
+
+  // ----- Question view -------------------------------------------------------
+  // Renders a single question by `kind`. Per-question state in
+  //   state.phases[phaseId].answers[questionId] = {
+  //     state: "answered" | "skipped" | "deferred" | "blank",
+  //     value, answered_at, note, rationale
+  //   }
+
+  const Question = (function () {
+
+    function ensureAnswerEntry(s, phaseId, questionId) {
+      const phase = s.phases[phaseId];
+      if (!phase.answers[questionId]) {
+        phase.answers[questionId] = { state: "blank", value: null, note: "" };
+      }
+      return phase.answers[questionId];
+    }
+
+    function answerOf(phaseId, questionId) {
+      const ph = State.get().phases[phaseId];
+      return (ph && ph.answers && ph.answers[questionId]) || { state: "blank", value: null, note: "" };
+    }
+
+    function setValue(phaseId, q, newValue) {
+      State.commit(function (s) {
+        const a = ensureAnswerEntry(s, phaseId, q.id);
+        a.value = newValue;
+        a.state = (newValue == null || (Array.isArray(newValue) && newValue.length === 0) || newValue === "")
+          ? "blank" : "answered";
+        a.answered_at = new Date().toISOString();
+      });
+    }
+
+    function setText(phaseId, q, newValue) {
+      State.deferredCommit(function (s) {
+        const a = ensureAnswerEntry(s, phaseId, q.id);
+        a.value = newValue;
+        a.state = (newValue == null || newValue === "") ? "blank" : "answered";
+        a.answered_at = new Date().toISOString();
+      });
+    }
+
+    function setNote(phaseId, q, newNote) {
+      State.deferredCommit(function (s) {
+        ensureAnswerEntry(s, phaseId, q.id).note = newNote;
+      });
+    }
+
+    function setRationale(phaseId, q, newR) {
+      State.deferredCommit(function (s) {
+        ensureAnswerEntry(s, phaseId, q.id).rationale = newR;
+      });
+    }
+
+    function setQuestionState(phaseId, q, newState) {
+      State.commit(function (s) {
+        const a = ensureAnswerEntry(s, phaseId, q.id);
+        if (newState === "answered") {
+          // "Answer" doesn't claim a value — it just clears Defer/Skip.
+          // The actual state is derived from whether a value is present.
+          const v = a.value;
+          const hasValue =
+            v != null &&
+            !(Array.isArray(v) && v.length === 0) &&
+            v !== "";
+          a.state = hasValue ? "answered" : "blank";
+        } else {
+          a.state = newState;
+        }
+      });
+    }
+
+    // ---- Input renderers, one per kind ----
+
+    function renderText(phaseId, q, a) {
+      return e("input", {
+        type: "text",
+        class: "q-input",
+        value: a.value || "",
+        "aria-label": q.text,
+        oninput: function (ev) { setText(phaseId, q, ev.currentTarget.value); },
+        onblur: function () { State.flushPending(); },
+      });
+    }
+
+    function renderLongtext(phaseId, q, a) {
+      return e("textarea", {
+        class: "q-input q-textarea",
+        rows: "4",
+        "aria-label": q.text,
+        value: a.value || "",
+        oninput: function (ev) { setText(phaseId, q, ev.currentTarget.value); },
+        onblur: function () { State.flushPending(); },
+      });
+    }
+
+    function renderNumber(phaseId, q, a) {
+      return e("input", {
+        type: "number",
+        class: "q-input",
+        value: (a.value == null ? "" : String(a.value)),
+        "aria-label": q.text,
+        oninput: function (ev) {
+          const raw = ev.currentTarget.value;
+          setText(phaseId, q, raw === "" ? null : Number(raw));
+        },
+      });
+    }
+
+    function renderList(phaseId, q, a) {
+      const text = Array.isArray(a.value) ? a.value.join("\n") : (a.value || "");
+      return e("div", null, [
+        e("textarea", {
+          class: "q-input q-textarea",
+          rows: "5",
+          placeholder: "One item per line",
+          "aria-label": q.text,
+          value: text,
+          oninput: function (ev) {
+            const v = ev.currentTarget.value;
+            const lines = v.split("\n").map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
+            State.deferredCommit(function (s) {
+              const aa = ensureAnswerEntry(s, phaseId, q.id);
+              aa.value = lines;
+              aa.state = lines.length === 0 ? "blank" : "answered";
+              aa.answered_at = new Date().toISOString();
+            });
+          },
+          onblur: function () { State.flushPending(); },
+        }),
+        e("p", { class: "muted q-hint" }, "One item per line."),
+      ]);
+    }
+
+    function renderBoolean(phaseId, q, a) {
+      const cur = a.value;
+      function btn(label, value) {
+        return e("button", {
+          type: "button",
+          class: "q-pill" + (cur === value ? " is-active" : ""),
+          onclick: function () { setValue(phaseId, q, value); },
+        }, label);
+      }
+      return e("div", { class: "q-pills", role: "radiogroup", "aria-label": q.text }, [
+        btn("Yes", true),
+        btn("No",  false),
+      ]);
+    }
+
+    function renderSingleSelect(phaseId, q, a, allOptions) {
+      const cur = a.value;
+      const opts = allOptions || q.options || [];
+      const list = opts.map(function (opt) {
+        const checked = cur === opt.value;
+        const id = "q-" + phaseId + "-" + q.id + "-" + opt.value;
+        return e("label", { class: "q-radio" + (checked ? " is-active" : ""), for: id }, [
+          e("input", {
+            type: "radio",
+            id: id,
+            name: phaseId + "/" + q.id,
+            value: opt.value,
+            checked: checked,
+            onchange: function () { setValue(phaseId, q, opt.value); },
+          }),
+          e("span", { class: "q-radio-body" }, [
+            e("strong", null, opt.label),
+            opt.description ? e("span", { class: "q-radio-desc" }, opt.description) : null,
+          ]),
+        ]);
+      });
+      return e("div", { class: "q-options", role: "radiogroup", "aria-label": q.text }, list);
+    }
+
+    function renderMultiSelect(phaseId, q, a) {
+      const cur = Array.isArray(a.value) ? a.value : [];
+      function toggle(value) {
+        const next = cur.indexOf(value) >= 0 ? cur.filter(function (v) { return v !== value; }) : cur.concat([value]);
+        setValue(phaseId, q, next);
+      }
+      const list = (q.options || []).map(function (opt) {
+        const checked = cur.indexOf(opt.value) >= 0;
+        const id = "q-" + phaseId + "-" + q.id + "-" + opt.value;
+        return e("label", { class: "q-check" + (checked ? " is-active" : ""), for: id }, [
+          e("input", {
+            type: "checkbox",
+            id: id,
+            value: opt.value,
+            checked: checked,
+            onchange: function () { toggle(opt.value); },
+          }),
+          e("span", { class: "q-radio-body" }, [
+            e("strong", null, opt.label),
+            opt.description ? e("span", { class: "q-radio-desc" }, opt.description) : null,
+          ]),
+        ]);
+      });
+      return e("div", { class: "q-options", "aria-label": q.text }, list);
+    }
+
+    /**
+     * For a single_select question that is the target of another question's
+     * `primary_select_for`, narrow the visible options to whatever the upstream
+     * multi_select has chosen, plus a "needs upstream answer" hint when empty.
+     */
+    function renderConstrainedSingleSelect(phaseId, q, a, drivingMultiselect) {
+      const driver = drivingMultiselect ? answerOf(phaseId, drivingMultiselect.id) : null;
+      const chosen = driver && Array.isArray(driver.value) ? driver.value : [];
+      if (chosen.length === 0) {
+        return e("p", { class: "muted q-hint" }, [
+          "Pick one or more options in ",
+          e("strong", null, drivingMultiselect ? drivingMultiselect.text : "the question above"),
+          " first.",
+        ]);
+      }
+      const filtered = (q.options || []).filter(function (opt) { return chosen.indexOf(opt.value) >= 0; });
+      // If the previously stored value is no longer among the chosen, clear it.
+      if (a.value && filtered.findIndex(function (o) { return o.value === a.value; }) < 0) {
+        State.commit(function (s) {
+          const ans = ensureAnswerEntry(s, phaseId, q.id);
+          ans.value = null;
+          ans.state = "blank";
+        });
+      }
+      return renderSingleSelect(phaseId, q, a, filtered);
+    }
+
+    // ---- Top-level question card ----
+
+    function render(phaseId, q, helpers) {
+      const a = answerOf(phaseId, q.id);
+      const required = q.required === true;
+
+      // Per-question state buttons: Answered (default) / Defer / Skip
+      function stateBtn(label, target) {
+        return e("button", {
+          type: "button",
+          class: "q-state-btn" + (a.state === target ? " is-active" : ""),
+          onclick: function () { setQuestionState(phaseId, q, target); },
+        }, label);
+      }
+
+      let body;
+      if (a.state === "deferred") {
+        body = e("div", { class: "q-deferred banner" }, [
+          e("strong", null, "Deferred — Claude will ask before deciding."),
+          " You can still leave a hint in the notes below.",
+        ]);
+      } else if (a.state === "skipped") {
+        body = e("div", { class: "q-skipped banner" }, [
+          e("strong", null, "Skipped."),
+          " A sensible default will be applied.",
+        ]);
+      } else {
+        // Render the input by kind.
+        if (q.kind === "text")              body = renderText(phaseId, q, a);
+        else if (q.kind === "longtext")     body = renderLongtext(phaseId, q, a);
+        else if (q.kind === "number")       body = renderNumber(phaseId, q, a);
+        else if (q.kind === "list")         body = renderList(phaseId, q, a);
+        else if (q.kind === "boolean")      body = renderBoolean(phaseId, q, a);
+        else if (q.kind === "multi_select") body = renderMultiSelect(phaseId, q, a);
+        else if (q.kind === "single_select") {
+          const driver = helpers && helpers.driverFor && helpers.driverFor(q.id);
+          body = driver
+            ? renderConstrainedSingleSelect(phaseId, q, a, driver)
+            : renderSingleSelect(phaseId, q, a);
+        } else {
+          body = e("p", { class: "muted" }, "Unsupported question kind: " + q.kind);
+        }
+      }
+
+      const guidance = q.guidance
+        ? e("details", { class: "q-guidance" }, [
+            e("summary", null, "Why is this asked?"),
+            e("p", { class: "muted" }, q.guidance),
+          ])
+        : null;
+
+      const rationale = q.rationale_field === true
+        ? e("details", { class: "q-rationale", open: a.rationale ? true : null }, [
+            e("summary", null, "Why this choice? (optional)"),
+            e("textarea", {
+              class: "q-input q-textarea",
+              rows: "2",
+              placeholder: "Optional — recorded in the prompt for Claude and your future self.",
+              "aria-label": "Rationale for " + q.text,
+              value: a.rationale || "",
+              oninput: function (ev) { setRationale(phaseId, q, ev.currentTarget.value); },
+            }),
+          ])
+        : null;
+
+      const notes = e("details", { class: "q-notes", open: a.note ? true : null }, [
+        e("summary", null, "Notes (optional)"),
+        e("textarea", {
+          class: "q-input q-textarea",
+          rows: "2",
+          placeholder: "Anything Claude should know about this answer.",
+          "aria-label": "Notes for " + q.text,
+          value: a.note || "",
+          oninput: function (ev) { setNote(phaseId, q, ev.currentTarget.value); },
+        }),
+      ]);
+
+      return e("section", { class: "q-card", "data-state": a.state }, [
+        e("div", { class: "q-head" }, [
+          e("h3", { class: "q-text" }, [
+            q.text,
+            required ? e("span", { class: "q-required", "aria-label": "Required" }, " *") : null,
+          ]),
+          e("div", { class: "q-actions" }, [
+            stateBtn("Answer", "answered"),
+            stateBtn("Defer",  "deferred"),
+            stateBtn("Skip",   "skipped"),
+          ]),
+        ]),
+        guidance,
+        body,
+        rationale,
+        notes,
+      ]);
+    }
+
     return { render };
   })();
 
@@ -467,6 +844,52 @@
         disabled: disabled === true,
         onclick: function () { onChange(value); },
       }, label);
+    }
+
+    function questionsForMode(phase, mode) {
+      const all = phase.questions || [];
+      if (mode === "skipped") return [];
+      // Mode "detailed" shows everything; "simplified" shows only flagged.
+      return all.filter(function (q) {
+        const modes = q.modes || ["detailed", "simplified"];
+        if (mode === "simplified") return modes.indexOf("simplified") >= 0;
+        return modes.indexOf("detailed") >= 0;
+      });
+    }
+
+    function buildHelpers(phase) {
+      // Map each single_select that is the target of a multi_select's
+      // primary_select_for back to the driving multi_select question.
+      const driverByTarget = {};
+      for (const q of (phase.questions || [])) {
+        if (q.kind === "multi_select" && q.primary_select_for) {
+          driverByTarget[q.primary_select_for] = q;
+        }
+      }
+      return {
+        driverFor: function (questionId) { return driverByTarget[questionId] || null; },
+      };
+    }
+
+    function renderPhaseBody(phase, ps) {
+      if (ps.mode === "skipped") {
+        return e("div", { class: "card phase-body" }, [
+          e("p", { class: "muted" }, [
+            "Phase marked Skipped. A sensible default will be applied. Switch to Detailed or Simplified above to answer.",
+          ]),
+        ]);
+      }
+      const visibleQuestions = questionsForMode(phase, ps.mode);
+      if (visibleQuestions.length === 0) {
+        return e("div", { class: "card phase-body" }, [
+          e("p", { class: "muted" }, "No questions yet for this phase. Detailed-mode content lands as the build advances."),
+        ]);
+      }
+      const helpers = buildHelpers(phase);
+      const cards = visibleQuestions.map(function (q) {
+        return Question.render(phase.id, q, helpers);
+      });
+      return e("div", { class: "phase-questions" }, cards);
     }
 
     function render(phaseId) {
@@ -515,13 +938,7 @@
           ),
         ]),
 
-        e("div", { class: "card phase-body" }, [
-          e("h2", null, "Phase content"),
-          e("p", { class: "muted" }, [
-            "The Detailed and Simplified question sets land in the next milestone (Phase 3 of the build plan). ",
-            "For now, this is a navigable empty shell — your phase comment below is saved.",
-          ]),
-        ]),
+        renderPhaseBody(phase, ps),
 
         e("div", { class: "card" }, [
           e("h2", null, "Your comments"),
@@ -532,6 +949,7 @@
             "aria-label": "Phase " + phase.number + " comment",
             value: ps.phase_comment || "",
             oninput: onPhaseCommentInput,
+            onblur: function () { State.flushPending(); },
             placeholder: "Notes, edge cases, things you're not sure about…",
           }),
         ]),

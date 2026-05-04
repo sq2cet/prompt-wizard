@@ -12,11 +12,23 @@ phases:
     questions:
       - id: pitch
         text: In one sentence, what is this app?
+        guidance: A short summary in plain language — no technical terms required. Imagine telling a friend in one breath.
         kind: text
         modes: [detailed, simplified]
         required: true
+      - id: problem
+        text: What problem does it solve?
+        guidance: Why does this need to exist? Who is hurting today and how does this app help?
+        kind: longtext
+        modes: [detailed]
+      - id: success_criteria
+        text: How will you know when it is working?
+        guidance: One bullet per success signal. Be concrete (e.g. "I can add an expense in under 10 seconds").
+        kind: list
+        modes: [detailed]
       - id: quality_bar
         text: How polished does this need to be?
+        guidance: This drives how strict subsequent phases are about logging, testing, deployment, etc.
         kind: single_select
         modes: [detailed, simplified]
         required: true
@@ -41,9 +53,59 @@ phases:
     questions:
       - id: who
         text: Who uses this?
+        guidance: A sentence or two describing the typical user — their role, their goal, the moment they reach for the app.
         kind: longtext
         modes: [detailed, simplified]
         required: true
+      - id: scale
+        text: How many people will use it?
+        guidance: A rough order of magnitude is enough.
+        kind: single_select
+        modes: [detailed, simplified]
+        options:
+          - value: solo
+            label: Just me
+            description: 1 user.
+          - value: small
+            label: A small group
+            description: Under 100 users.
+          - value: mid
+            label: A medium audience
+            description: Up to ~10 000 users.
+          - value: large
+            label: Mass audience
+            description: 10 000+ users.
+      - id: devices
+        text: Which devices does it need to work on?
+        kind: multi_select
+        modes: [detailed]
+        options:
+          - { value: desktop, label: Desktop / laptop }
+          - { value: phone,   label: Phone }
+          - { value: tablet,  label: Tablet }
+          - { value: tv,      label: Smart TV }
+          - { value: other,   label: Other (note in comments) }
+      - id: accessibility
+        text: How important is accessibility?
+        guidance: WCAG 2.1 AA is the most common bar; pick AAA only if you have a regulatory requirement.
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: best_effort, label: "Best effort", description: Reasonable defaults; no formal target. }
+          - { value: wcag_aa,     label: "WCAG 2.1 AA",  description: Standard accessibility target for public apps. }
+          - { value: wcag_aaa,    label: "WCAG 2.1 AAA", description: Strict — usually only for regulated sectors. }
+      - id: internationalisation
+        text: Does it need to support more than one language?
+        kind: boolean
+        modes: [detailed]
+      - id: technical_literacy
+        text: How technical are the users?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: non_technical, label: "Non-technical", description: They expect a polished UI; jargon is a problem. }
+          - { value: casual,        label: "Casually technical", description: They can follow a README and run a command. }
+          - { value: technical,     label: "Technical / power users", description: They are comfortable with a CLI and config files. }
 
   - id: form_factor
     number: 3
@@ -52,6 +114,7 @@ phases:
     questions:
       - id: factors
         text: What kind of application is this?
+        guidance: Pick all that apply. A web app with a REST API is two checkboxes — both will be reflected in the prompt.
         kind: multi_select
         modes: [detailed, simplified]
         required: true
@@ -69,6 +132,7 @@ phases:
           - { value: game,      label: Game }
       - id: primary_factor
         text: Of those, which is the primary one?
+        guidance: The dependency graph and stack recommendation key off this. Secondary factors become constraints.
         kind: single_select
         modes: [detailed, simplified]
         required: true
@@ -84,6 +148,17 @@ phases:
           - { value: data,      label: Data pipeline }
           - { value: embedded,  label: Embedded / IoT }
           - { value: game,      label: Game }
+      - id: delivery
+        text: How will users get the app?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: web_url,    label: "A web URL they visit" }
+          - { value: app_store,  label: "From an app store (mobile / desktop)" }
+          - { value: download,   label: "Downloadable file (binary, installer, archive)" }
+          - { value: package,    label: "Through a package manager (npm / pip / brew / cargo / …)" }
+          - { value: source,     label: "They run it from source" }
+          - { value: other,      label: "Other (note in comments)" }
 
   - id: features
     number: 4
@@ -92,9 +167,24 @@ phases:
     questions:
       - id: must_have
         text: What features are absolutely required?
+        guidance: One feature per line. Testable phrasing helps — "user can sign in" beats "good auth".
         kind: list
         modes: [detailed, simplified]
         required: true
+      - id: should_have
+        text: What features would be very nice to have?
+        guidance: Important but not blocking — the build plan can de-prioritise these if needed.
+        kind: list
+        modes: [detailed]
+      - id: nice_to_have
+        text: What features are bonus, future, or experimental?
+        guidance: Anything worth recording so it is not forgotten, but not part of v1.
+        kind: list
+        modes: [detailed]
+      - id: killer_feature
+        text: If you could only ship one feature, which is the one users will love most?
+        kind: text
+        modes: [detailed]
 
   - id: data_input
     number: 5
@@ -106,8 +196,32 @@ phases:
     questions:
       - id: sources
         text: Where does data come from?
+        guidance: User input, files, APIs, sensors, message queues, database reads — list each source with one line.
         kind: longtext
         modes: [detailed, simplified]
+      - id: formats
+        text: In what formats does the data arrive?
+        kind: list
+        modes: [detailed]
+      - id: volume
+        text: Roughly how much data per day?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: trickle, label: "A trickle (megabytes)", description: "Hand-typed entries, single files." }
+          - { value: modest,  label: "Modest (gigabytes)" }
+          - { value: large,   label: "Large (tens of gigabytes)" }
+          - { value: huge,    label: "Huge (hundreds of GB to TB+)" }
+      - id: frequency
+        text: How frequently does new data arrive?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: realtime, label: "In real time / streaming" }
+          - { value: minute,   label: "Every few minutes" }
+          - { value: hour,     label: "Hourly" }
+          - { value: day,      label: "Daily" }
+          - { value: ondemand, label: "Only when triggered" }
 
   - id: data_process
     number: 6
@@ -119,8 +233,23 @@ phases:
     questions:
       - id: transforms
         text: What does the system do with the data?
+        guidance: Validate, transform, aggregate, enrich, run an ML model, etc. One step per line.
         kind: longtext
         modes: [detailed, simplified]
+      - id: scheduling
+        text: Are the processing steps scheduled or on-demand?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: ondemand, label: "On demand — triggered by a user or event" }
+          - { value: scheduled, label: "Scheduled (cron-style)" }
+          - { value: streaming, label: "Continuous streaming" }
+          - { value: mixed, label: "A mix of the above" }
+      - id: idempotency
+        text: If a step is retried, is it safe to run again?
+        guidance: Idempotent steps can be retried freely. Non-idempotent steps need de-duplication or transactions.
+        kind: boolean
+        modes: [detailed]
 
   - id: data_exchange
     number: 7
@@ -132,8 +261,26 @@ phases:
     questions:
       - id: protocols
         text: How does this system talk to others?
+        guidance: REST, GraphQL, gRPC, WebSocket, message queue, file transfer — list each integration.
         kind: longtext
         modes: [detailed, simplified]
+      - id: sync_vs_async
+        text: Are external calls synchronous or asynchronous?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: sync,  label: "Synchronous — caller waits for the response" }
+          - { value: async, label: "Asynchronous — caller fires and forgets / polls later" }
+          - { value: both,  label: "A mix of both" }
+      - id: retry_policy
+        text: When an external call fails, what happens?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: fail_fast,    label: "Fail fast — propagate the error immediately" }
+          - { value: retry_simple, label: "Retry a few times with backoff" }
+          - { value: circuit,      label: "Retry with a circuit breaker" }
+          - { value: fallback,     label: "Fall back to a cached / degraded response" }
 
   - id: data_store
     number: 8
@@ -145,8 +292,32 @@ phases:
     questions:
       - id: storage_type
         text: Where does data live at rest?
+        guidance: SQL DB, document DB, key-value store, files on disk, object storage, cache only — describe each.
         kind: longtext
         modes: [detailed, simplified]
+      - id: retention
+        text: How long should data be kept?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: forever,   label: "Forever (until manually deleted)" }
+          - { value: years,     label: "Years (specify in notes)" }
+          - { value: months,    label: "Months" }
+          - { value: days,      label: "Days" }
+          - { value: ephemeral, label: "Ephemeral — discarded after processing" }
+      - id: encryption_at_rest
+        text: Does data need to be encrypted at rest?
+        kind: boolean
+        modes: [detailed]
+      - id: backup
+        text: Is the data important enough to back up?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: none,      label: "No — re-derivable" }
+          - { value: simple,    label: "Yes — periodic snapshots" }
+          - { value: pitr,      label: "Yes — point-in-time recovery" }
+          - { value: replica,   label: "Yes — live replica + snapshots" }
 
   - id: data_output
     number: 9
@@ -158,8 +329,29 @@ phases:
     questions:
       - id: outputs
         text: What does the system produce?
+        guidance: A web UI, a JSON API response, a file, a notification, a report — describe each output.
         kind: longtext
         modes: [detailed, simplified]
+      - id: channels
+        text: Which channels carry the output?
+        kind: multi_select
+        modes: [detailed]
+        options:
+          - { value: ui,           label: "On-screen UI" }
+          - { value: api,          label: "API response" }
+          - { value: file,         label: "Downloadable file" }
+          - { value: email,        label: "Email" }
+          - { value: notification, label: "Push / in-app notification" }
+          - { value: webhook,      label: "Webhook to another system" }
+          - { value: dashboard,    label: "Dashboard" }
+      - id: realtime_or_batch
+        text: Is output produced in real time or in batches?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: realtime, label: "Real time" }
+          - { value: batch,    label: "Batched (periodic)" }
+          - { value: mixed,    label: "Both" }
 
   - id: validation
     number: 10
@@ -168,8 +360,26 @@ phases:
     questions:
       - id: strategy
         text: How is input validated?
+        guidance: Type checks, format checks, range / length, allowed values, business-rule checks — describe at a high level.
         kind: longtext
         modes: [detailed, simplified]
+      - id: enforcement_point
+        text: Where is validation enforced?
+        kind: multi_select
+        modes: [detailed]
+        options:
+          - { value: client, label: "On the client (UI form)" }
+          - { value: api,    label: "At the API boundary" }
+          - { value: domain, label: "Inside business logic" }
+          - { value: db,     label: "By database constraints" }
+      - id: failure_response
+        text: What happens when validation fails?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: reject,  label: "Reject with a clear error message" }
+          - { value: sanitise, label: "Sanitise / coerce silently" }
+          - { value: warn,    label: "Accept but warn / log" }
 
   - id: error_handling
     number: 11
@@ -178,8 +388,27 @@ phases:
     questions:
       - id: taxonomy
         text: What categories of errors exist, and how should each be handled?
+        guidance: User input, dependency failure, auth, rate limit, internal bug — for each, what is the response?
         kind: longtext
         modes: [detailed, simplified]
+      - id: error_ux
+        text: How does the user see errors?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: toast,   label: "Toast / inline notification" }
+          - { value: page,    label: "Dedicated error page" }
+          - { value: modal,   label: "Modal dialog" }
+          - { value: status,  label: "Status code / log entry only (CLI / API)" }
+      - id: critical_alerts
+        text: How are critical errors surfaced to operators?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: none,    label: "Not surfaced — manual log review" }
+          - { value: log,     label: "Logged at ERROR level" }
+          - { value: dashboard, label: "Visible on a dashboard" }
+          - { value: alert,   label: "Triggers an alert / page" }
 
   - id: logging_observability
     number: 12
@@ -188,8 +417,31 @@ phases:
     questions:
       - id: logs
         text: What gets logged, and to where?
+        guidance: Requests, errors, business events, security events, performance — and the destination (stdout, file, central system).
         kind: longtext
         modes: [detailed, simplified]
+      - id: log_format
+        text: What log format?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: plain,      label: "Plain text — human-readable" }
+          - { value: structured, label: "Structured (JSON)" }
+          - { value: both,       label: "Both, depending on destination" }
+      - id: metrics_traces
+        text: Beyond logs, what observability is in place?
+        kind: multi_select
+        modes: [detailed]
+        options:
+          - { value: metrics, label: "Metrics (golden signals, SLOs)" }
+          - { value: traces,  label: "Distributed tracing" }
+          - { value: health,  label: "Health-check endpoints" }
+          - { value: alerts,  label: "Alerting" }
+          - { value: audit,   label: "Separate audit log (who-did-what)" }
+      - id: pii_masking
+        text: Are personal data / secrets masked in logs?
+        kind: boolean
+        modes: [detailed]
 
   - id: operations
     number: 13
@@ -201,8 +453,27 @@ phases:
     questions:
       - id: deploy
         text: How is this deployed and operated?
+        guidance: Cloud provider, on-prem, single laptop — and how a new version reaches production.
         kind: longtext
         modes: [detailed, simplified]
+      - id: ci_cd
+        text: Is there continuous integration / deployment?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: none,    label: "None — manual builds" }
+          - { value: ci_only, label: "CI only — manual deploys" }
+          - { value: ci_cd,   label: "CI and CD — auto-deploy on merge" }
+          - { value: gated,   label: "CI and CD with manual gate to production" }
+      - id: incident_response
+        text: How are production incidents handled?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: none,        label: "Best-effort — whoever notices first" }
+          - { value: oncall,      label: "On-call rotation" }
+          - { value: runbook,     label: "On-call + documented runbook" }
+          - { value: postmortem,  label: "On-call + runbook + post-incident review" }
 
   - id: compliance
     number: 14
@@ -233,9 +504,29 @@ phases:
     questions:
       - id: forced_tech
         text: Is there technology you must use?
+        guidance: Sometimes a stack is mandated by an existing system, a contract, or a personal preference.
         kind: text
         modes: [detailed, simplified]
       - id: forbidden_tech
         text: Is there technology you must NOT use?
         kind: text
         modes: [detailed, simplified]
+      - id: hosting
+        text: Where is this allowed to run?
+        kind: single_select
+        modes: [detailed]
+        options:
+          - { value: local,   label: "Local machine only" }
+          - { value: home,    label: "Home network / homelab" }
+          - { value: cloud,   label: "Public cloud" }
+          - { value: hybrid,  label: "Hybrid (some local, some cloud)" }
+          - { value: any,     label: "Anywhere" }
+      - id: timeline
+        text: Is there a deadline?
+        kind: text
+        modes: [detailed]
+      - id: budget
+        text: Any budget constraints?
+        guidance: Cloud cost ceiling, free-tier only, no paid services, etc.
+        kind: text
+        modes: [detailed]
