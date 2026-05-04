@@ -26,6 +26,28 @@ that Claude Code consumes to drive a complete build with verification gates at e
 - Build is reproducible given fixed inputs; see `build.py`.
 - The repo includes a sanitisation gate (`build.py` + pre-commit hook + CI) that runs on every change.
 
+## Development setup
+
+Build dependencies live in a project-local venv. The shipped artefact has zero runtime deps.
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+
+# Sanitisation scan (no third-party deps; uses system python3)
+python3 build.py scan
+
+# JSON-Schema validate every YAML in src/data/
+.venv/bin/python build.py validate
+```
+
+The pre-commit hook is wired through `core.hooksPath = .githooks` and runs the sanitisation
+scan before each commit. Activate after cloning:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

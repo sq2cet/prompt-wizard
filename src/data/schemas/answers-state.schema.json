@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sq2cet/prompt-wizard/schemas/answers-state.schema.json",
+  "title": "Wizard answers state",
+  "description": "Round-trippable state of a wizard run. Saved as <project-slug>-answers.json. Importer matches answers_schema_version to migration steps.",
+  "type": "object",
+  "required": [
+    "answers_schema_version",
+    "wizard_version",
+    "data_version",
+    "claude_code_target_version",
+    "started_at",
+    "last_modified_at",
+    "project_slug",
+    "quality_bar",
+    "preflight",
+    "phases"
+  ],
+  "properties": {
+    "answers_schema_version": { "type": "string", "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?$" },
+    "wizard_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "data_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "claude_code_target_version": { "type": "string", "minLength": 1 },
+    "started_at": { "type": "string", "format": "date-time" },
+    "last_modified_at": { "type": "string", "format": "date-time" },
+    "project_slug": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "quality_bar": { "type": "string", "enum": ["throwaway", "personal", "shareable", "production"] },
+    "preflight": {
+      "type": "object",
+      "required": ["claude_code_attested"],
+      "properties": {
+        "claude_code_attested": { "type": "boolean" },
+        "attested_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "phases": {
+      "type": "object",
+      "minProperties": 15,
+      "maxProperties": 15,
+      "additionalProperties": { "$ref": "#/$defs/phase_state" }
+    },
+    "review": {
+      "type": "object",
+      "properties": {
+        "followups_answered": { "type": "object", "additionalProperties": { "type": "string" } },
+        "followups_deferred": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "phase_state": {
+      "type": "object",
+      "required": ["mode", "answers"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["detailed", "simplified", "skipped"] },
+        "answers": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/answer" }
+        },
+        "phase_comment": { "type": "string" },
+        "phase_comment_at": { "type": "string", "format": "date-time" },
+        "stale_since": { "type": ["string", "null"], "format": "date-time" },
+        "stale_reason": { "type": ["string", "null"] },
+        "user_acknowledged_stale": { "type": "boolean", "default": false }
+      },
+      "additionalProperties": false
+    },
+    "answer": {
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": { "type": "string", "enum": ["answered", "skipped", "deferred", "blank"] },
+        "value": {},
+        "answered_at": { "type": "string", "format": "date-time" },
+        "note": { "type": "string" },
+        "rationale": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

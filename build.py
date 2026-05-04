@@ -4,11 +4,17 @@
 Subcommands:
     scan        Run the sanitisation regex scan over the source tree.
                 Used by the pre-commit hook and CI.
+    validate    Validate every YAML in src/data/ against its JSON Schema in
+                src/data/schemas/. Fails fast on any violation.
     build       (Future) compile src/ into prompt-wizard.html. Not yet implemented.
 
 The sanitisation gate refuses to run without a canonical forbidden-terms file.
 The canonical list is private to the developer's environment / CI secrets and is
 intentionally NOT committed to this repository. See src/data/forbidden-terms.example.txt.
+
+Build dependencies (validate / build subcommands): jsonschema, PyYAML.
+Install with `python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt`.
+The `scan` subcommand has no third-party dependencies.
 """
 
 from __future__ import annotations
@@ -84,7 +90,35 @@ def load_forbidden_patterns(terms_file: Path) -> list[re.Pattern[str]]:
 
 
 def iter_scan_files(root: Path):
-    """Yield files in `root` that should be scanned."""
+    """Yield files that should be scanned.
+
+    If the project is a git repository, restrict to git-tracked files (so the
+    scan exactly mirrors what would be pushed to the public repo). Otherwise
+    fall back to a filesystem walk with the same exclusion list.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True, check=True, text=False,
+        )
+        tracked = [p for p in result.stdout.split(b"\x00") if p]
+        for raw in tracked:
+            rel = raw.decode("utf-8", errors="replace")
+            path = root / rel
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in SCAN_INCLUDE_EXTS:
+                continue
+            if path.name in SCAN_EXCLUDES:
+                continue
+            yield path
+        return
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Not a git repo or git unavailable — fall back to filesystem walk.
+        pass
+
     for path in root.rglob("*"):
         if not path.is_file():
             continue
@@ -159,6 +193,84 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# `validate` subcommand: JSON Schema validation of src/data/*.yaml
+# ---------------------------------------------------------------------------
+
+# Mapping of YAML data files to their schema files (both relative to PROJECT_ROOT).
+# Add new entries as new data files are introduced.
+DATA_TO_SCHEMA: dict[str, str] = {
+    "src/data/question-taxonomy.yaml":   "src/data/schemas/question-taxonomy.schema.json",
+    "src/data/tech-stack-catalog.yaml":  "src/data/schemas/tech-stack-catalog.schema.json",
+    "src/data/prerequisite-catalog.yaml":"src/data/schemas/prerequisite-catalog.schema.json",
+    "src/data/compliance-catalog.yaml":  "src/data/schemas/compliance-catalog.schema.json",
+    "src/data/inconsistency-rules.yaml": "src/data/schemas/inconsistency-rules.schema.json",
+    "src/data/template-bindings.yaml":   "src/data/schemas/template-bindings.schema.json",
+}
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    """Validate every YAML data file against its JSON Schema."""
+    try:
+        import json
+        import jsonschema
+        import yaml
+    except ImportError as e:
+        sys.stderr.write(
+            f"ERROR: required Python package not installed: {e.name}\n"
+            f"Run: python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt\n"
+            f"Then run: .venv/bin/python build.py validate\n"
+        )
+        return 2
+
+    failures = 0
+    for data_rel, schema_rel in DATA_TO_SCHEMA.items():
+        data_path = PROJECT_ROOT / data_rel
+        schema_path = PROJECT_ROOT / schema_rel
+
+        if not data_path.is_file():
+            sys.stderr.write(f"FAIL: data file missing: {data_rel}\n")
+            failures += 1
+            continue
+        if not schema_path.is_file():
+            sys.stderr.write(f"FAIL: schema file missing: {schema_rel}\n")
+            failures += 1
+            continue
+
+        try:
+            data = yaml.safe_load(data_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as e:
+            sys.stderr.write(f"FAIL: {data_rel}: YAML parse error: {e}\n")
+            failures += 1
+            continue
+
+        try:
+            schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            sys.stderr.write(f"FAIL: {schema_rel}: JSON parse error: {e}\n")
+            failures += 1
+            continue
+
+        try:
+            jsonschema.validate(instance=data, schema=schema)
+        except jsonschema.ValidationError as e:
+            location = "/".join(str(p) for p in e.absolute_path) or "<root>"
+            sys.stderr.write(
+                f"FAIL: {data_rel}: schema violation at {location}\n"
+                f"      {e.message}\n"
+            )
+            failures += 1
+            continue
+
+        print(f"OK:   {data_rel}")
+
+    if failures:
+        sys.stderr.write(f"\n{failures} validation failure(s).\n")
+        return 1
+    print(f"\nAll {len(DATA_TO_SCHEMA)} data file(s) valid against their schemas.")
+    return 0
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     """Compile src/ -> prompt-wizard.html. Not yet implemented."""
     sys.stderr.write(
@@ -179,6 +291,11 @@ def main() -> int:
         default=os.environ.get("FORBIDDEN_TERMS_FILE"),
     )
     p_scan.set_defaults(func=cmd_scan)
+
+    p_validate = sub.add_parser(
+        "validate", help="Validate src/data/*.yaml against their JSON Schemas."
+    )
+    p_validate.set_defaults(func=cmd_validate)
 
     p_build = sub.add_parser("build", help="Compile src/ into prompt-wizard.html (TBD).")
     p_build.set_defaults(func=cmd_build)

@@ -1,0 +1,36 @@
+# Tech-stack catalog — recommended stacks per form factor.
+# Validated against src/data/schemas/tech-stack-catalog.schema.json.
+# Skeleton: only the form-factor scaffolding is populated. Stack details are
+# filled in subsequent build phases.
+version: "0.1.0"
+
+form_factors:
+  web:
+    label: Web app
+    sub_types: [static, spa, fullstack, api_only]
+    stacks:
+      - name: "Next.js + SQLite"
+        summary: Fullstack with file-based DB, batteries-included.
+        sub_types: [fullstack]
+        pros:
+          - Batteries-included framework — routing, SSR, build all in one.
+          - SQLite needs no server; good for personal-scale apps.
+        cons:
+          - React-heavy.
+          - SQLite has practical write-concurrency limits.
+        default_for: ["fullstack with auth and a small DB"]
+        prerequisites: [node, git]
+
+  cli:
+    label: CLI / scripts
+    sub_types: [shell, python, node, go, rust]
+    stacks:
+      - name: "Python + click"
+        summary: Standard library + click for ergonomic argument parsing.
+        pros:
+          - Wide ecosystem.
+          - Easy to ship as a single file.
+        cons:
+          - Python startup time is non-zero.
+        default_for: ["small CLI tools"]
+        prerequisites: [python]

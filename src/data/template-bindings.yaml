@@ -1,0 +1,30 @@
+# Template bindings — every {{placeholder}} in the bundle templates listed here.
+# Validated against src/data/schemas/template-bindings.schema.json.
+# build.py verifies that every placeholder in src/templates/ has a binding,
+# and that every binding here points at a real placeholder.
+version: "0.1.0"
+
+bindings:
+  project_name:
+    source: "answers.project_slug"
+    kind: literal
+    fallback: "<project>"
+    templates: ["PROMPT.md", "README.md"]
+
+  vision_paragraph:
+    source: "phases.vision.answers.pitch.value"
+    kind: literal
+    fallback: ""
+    templates: ["PROMPT.md", "docs/01-vision.md"]
+
+  quality_bar:
+    source: "phases.vision.answers.quality_bar.value"
+    kind: literal
+    fallback: "personal"
+    templates: ["PROMPT.md"]
+
+  primary_form_factor:
+    source: "phases.form_factor.answers.primary_factor.value"
+    kind: literal
+    fallback: ""
+    templates: ["PROMPT.md", "docs/03-form-factor.md", "meta/tech-stack.md"]

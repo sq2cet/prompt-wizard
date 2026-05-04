@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sq2cet/prompt-wizard/schemas/prerequisite-catalog.schema.json",
+  "title": "Prerequisite catalog",
+  "description": "Tools required to build apps in various stacks. Vendor-neutral; no employer-environment notes.",
+  "type": "object",
+  "required": ["version", "tools"],
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "tools": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/tool" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "tool": {
+      "type": "object",
+      "required": ["verify"],
+      "properties": {
+        "label": { "type": "string" },
+        "versions": {
+          "type": "string",
+          "description": "Version constraint, e.g. '>=20'."
+        },
+        "verify": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Shell command that prints a version string and exits 0 if installed."
+        },
+        "install": {
+          "type": "object",
+          "properties": {
+            "macos":   { "type": "string" },
+            "windows": { "type": "string" },
+            "linux":   { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "notes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Vendor-neutral notes about install gotchas (e.g. TLS-inspecting proxy, endpoint AV, admin-privilege requirements). MUST NOT name specific vendor products."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

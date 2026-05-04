@@ -1,0 +1,241 @@
+# Question taxonomy — 15 wizard phases.
+# Validated against src/data/schemas/question-taxonomy.schema.json.
+# Phase content is intentionally minimal here; later build phases populate the
+# Detailed and Simplified question sets per phase.
+version: "0.1.0"
+
+phases:
+  - id: vision
+    number: 1
+    title: Vision
+    summary: One-sentence pitch, problem solved, success criteria, quality bar.
+    questions:
+      - id: pitch
+        text: In one sentence, what is this app?
+        kind: text
+        modes: [detailed, simplified]
+        required: true
+      - id: quality_bar
+        text: How polished does this need to be?
+        kind: single_select
+        modes: [detailed, simplified]
+        required: true
+        options:
+          - value: throwaway
+            label: Throwaway
+            description: One-off script — never reused.
+          - value: personal
+            label: Personal
+            description: Just for me — runs on my machine.
+          - value: shareable
+            label: Shareable
+            description: Friends or colleagues can use it.
+          - value: production
+            label: Production
+            description: Real users — real reliability bar.
+
+  - id: audience
+    number: 2
+    title: Audience
+    summary: Users, scale, devices, accessibility, internationalisation, technical literacy.
+    questions:
+      - id: who
+        text: Who uses this?
+        kind: longtext
+        modes: [detailed, simplified]
+        required: true
+
+  - id: form_factor
+    number: 3
+    title: Form factor
+    summary: Web, mobile, desktop, CLI, etc. Multi-select with one chosen as primary.
+    questions:
+      - id: factors
+        text: What kind of application is this?
+        kind: multi_select
+        modes: [detailed, simplified]
+        required: true
+        primary_select_for: primary_factor
+        options:
+          - { value: web,       label: Web app }
+          - { value: mobile,    label: Mobile app }
+          - { value: desktop,   label: Desktop app }
+          - { value: cli,       label: CLI tool }
+          - { value: script,    label: One-off script }
+          - { value: api,       label: API / backend service }
+          - { value: ml,        label: ML model / data pipeline }
+          - { value: data,      label: Data pipeline }
+          - { value: embedded,  label: Embedded / IoT }
+          - { value: game,      label: Game }
+      - id: primary_factor
+        text: Of those, which is the primary one?
+        kind: single_select
+        modes: [detailed, simplified]
+        required: true
+        rationale_field: true
+        options:
+          - { value: web,       label: Web app }
+          - { value: mobile,    label: Mobile app }
+          - { value: desktop,   label: Desktop app }
+          - { value: cli,       label: CLI tool }
+          - { value: script,    label: One-off script }
+          - { value: api,       label: API / backend service }
+          - { value: ml,        label: ML model / data pipeline }
+          - { value: data,      label: Data pipeline }
+          - { value: embedded,  label: Embedded / IoT }
+          - { value: game,      label: Game }
+
+  - id: features
+    number: 4
+    title: Features
+    summary: MUST · SHOULD · NICE-to-have, numbered and testable.
+    questions:
+      - id: must_have
+        text: What features are absolutely required?
+        kind: list
+        modes: [detailed, simplified]
+        required: true
+
+  - id: data_input
+    number: 5
+    title: "Data — Input"
+    summary: Sources, formats, volume, frequency, validation rules, failure modes.
+    depends_on:
+      - phase: form_factor
+        questions: [primary_factor]
+    questions:
+      - id: sources
+        text: Where does data come from?
+        kind: longtext
+        modes: [detailed, simplified]
+
+  - id: data_process
+    number: 6
+    title: "Data — Process"
+    summary: Transforms, enrichment, error handling per stage, idempotency.
+    depends_on:
+      - phase: form_factor
+        questions: [primary_factor]
+    questions:
+      - id: transforms
+        text: What does the system do with the data?
+        kind: longtext
+        modes: [detailed, simplified]
+
+  - id: data_exchange
+    number: 7
+    title: "Data — Exchange"
+    summary: Protocols, sync vs async, timeouts, retry policy, error responses.
+    depends_on:
+      - phase: form_factor
+        questions: [primary_factor]
+    questions:
+      - id: protocols
+        text: How does this system talk to others?
+        kind: longtext
+        modes: [detailed, simplified]
+
+  - id: data_store
+    number: 8
+    title: "Data — Store"
+    summary: Type, retention, encryption, backup, constraint violations.
+    depends_on:
+      - phase: form_factor
+        questions: [primary_factor]
+    questions:
+      - id: storage_type
+        text: Where does data live at rest?
+        kind: longtext
+        modes: [detailed, simplified]
+
+  - id: data_output
+    number: 9
+    title: "Data — Output"
+    summary: Formats, channels, real-time vs batch, recipients, failure modes.
+    depends_on:
+      - phase: form_factor
+        questions: [primary_factor]
+    questions:
+      - id: outputs
+        text: What does the system produce?
+        kind: longtext
+        modes: [detailed, simplified]
+
+  - id: validation
+    number: 10
+    title: Validation
+    summary: System-wide validation strategy, where enforced, sanitisation.
+    questions:
+      - id: strategy
+        text: How is input validated?
+        kind: longtext
+        modes: [detailed, simplified]
+
+  - id: error_handling
+    number: 11
+    title: Error handling
+    summary: Error taxonomy, retry policy, idempotency, timeouts, error UX.
+    questions:
+      - id: taxonomy
+        text: What categories of errors exist, and how should each be handled?
+        kind: longtext
+        modes: [detailed, simplified]
+
+  - id: logging_observability
+    number: 12
+    title: Logging & observability
+    summary: What/where/format/levels/retention, masking, metrics, traces, alerts, SLOs, audit.
+    questions:
+      - id: logs
+        text: What gets logged, and to where?
+        kind: longtext
+        modes: [detailed, simplified]
+
+  - id: operations
+    number: 13
+    title: Operations
+    summary: Deploy, CI/CD, monitoring, backup, incident response (depth scales with quality bar).
+    depends_on:
+      - phase: vision
+        questions: [quality_bar]
+    questions:
+      - id: deploy
+        text: How is this deployed and operated?
+        kind: longtext
+        modes: [detailed, simplified]
+
+  - id: compliance
+    number: 14
+    title: Compliance & legal
+    summary: PII, GDPR, HIPAA, SOC2, ADA / WCAG, data residency. Skip is disabled.
+    skip_disabled: true
+    questions:
+      - id: regimes
+        text: What regulatory regimes apply (if any)?
+        kind: multi_select
+        modes: [detailed, simplified]
+        required: true
+        options:
+          - { value: none,  label: None — I attest no regulated data is involved (and accept the risk) }
+          - { value: gdpr,  label: GDPR (EU personal data) }
+          - { value: hipaa, label: HIPAA (US health data) }
+          - { value: soc2,  label: SOC 2 }
+          - { value: pci,   label: PCI DSS (payment card data) }
+          - { value: ccpa,  label: CCPA (California consumer privacy) }
+          - { value: ada,   label: ADA / WCAG (accessibility) }
+          - { value: eaa,   label: EAA (European Accessibility Act) }
+          - { value: other, label: Other (specify in notes) }
+
+  - id: constraints
+    number: 15
+    title: Constraints
+    summary: Budget, timeline, forced/forbidden tech, hosting, platforms.
+    questions:
+      - id: forced_tech
+        text: Is there technology you must use?
+        kind: text
+        modes: [detailed, simplified]
+      - id: forbidden_tech
+        text: Is there technology you must NOT use?
+        kind: text
+        modes: [detailed, simplified]

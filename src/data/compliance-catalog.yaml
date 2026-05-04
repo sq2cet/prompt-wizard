@@ -1,0 +1,52 @@
+# Compliance catalog — informational regimes surfaced in Phase 14.
+# Validated against src/data/schemas/compliance-catalog.schema.json.
+# Every regime entry MUST end with a "not legal advice" guardrail string.
+version: "0.1.0"
+
+regimes:
+  gdpr:
+    label: GDPR (EU General Data Protection Regulation)
+    summary: EU framework for processing personal data of EU residents.
+    applies_when:
+      - The application processes data of EU residents.
+      - The operator is established in the EU.
+    questions:
+      - On what lawful basis is personal data processed (consent / contract / legitimate interest / etc.)?
+      - How is the data-minimisation principle implemented?
+      - How is the right to erasure (deletion) handled?
+      - Is there a Data Processing Agreement with each third-party processor?
+      - How are cross-border transfers handled (SCCs / adequacy decisions)?
+    prompt_artifacts:
+      - "Privacy policy stub"
+      - "DPIA checklist"
+    guardrail: |
+      This is informational only. Not legal advice. A qualified data-protection lawyer
+      must review the system before launch.
+
+  hipaa:
+    label: HIPAA (US health-data privacy)
+    applies_when:
+      - The application processes Protected Health Information (PHI) under US jurisdiction.
+    questions:
+      - Is a Business Associate Agreement (BAA) in place with each vendor handling PHI?
+      - How is encryption at rest and in transit implemented for PHI?
+      - How are access logs and audit trails maintained?
+    prompt_artifacts:
+      - "Risk-assessment checklist"
+    guardrail: |
+      This is informational only. Not legal advice. A qualified HIPAA compliance
+      counsel must review the system before launch.
+
+  ada_wcag:
+    label: ADA / WCAG (US accessibility law and the Web Content Accessibility Guidelines)
+    applies_when:
+      - The application has a user interface accessible to the public.
+    questions:
+      - What WCAG conformance level is targeted (A / AA / AAA)?
+      - How is keyboard-only navigation supported?
+      - How are screen-reader compatibility and ARIA roles handled?
+    prompt_artifacts:
+      - "Accessibility test checklist"
+    guardrail: |
+      This is informational only. Not legal advice. Accessibility-law obligations
+      vary by jurisdiction; a qualified lawyer must review the system before launch.

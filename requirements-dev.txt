@@ -1,0 +1,6 @@
+# Build / development dependencies for prompt-wizard.
+# The shipped artefact (prompt-wizard.html) has zero runtime dependencies on these.
+# These are only used by build.py and CI.
+
+jsonschema>=4.20
+PyYAML>=6.0

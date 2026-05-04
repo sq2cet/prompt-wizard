@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sq2cet/prompt-wizard/schemas/template-bindings.schema.json",
+  "title": "Template bindings",
+  "description": "Maps every {{placeholder}} in the bundle templates to its source data field.",
+  "type": "object",
+  "required": ["version", "bindings"],
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "bindings": {
+      "type": "object",
+      "minProperties": 0,
+      "additionalProperties": { "$ref": "#/$defs/binding" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "required": ["source", "kind"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "JSONPath-like reference into answers.json or a derived value."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["literal", "list", "table", "computed", "constant"]
+        },
+        "fallback": { "type": "string" },
+        "templates": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Filenames in src/templates/ where this placeholder appears. Used by build.py to verify usage."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

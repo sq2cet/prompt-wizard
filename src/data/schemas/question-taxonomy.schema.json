@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sq2cet/prompt-wizard/schemas/question-taxonomy.schema.json",
+  "title": "Question taxonomy",
+  "description": "Defines the 15 wizard phases and their sub-questions in Detailed and Simplified modes.",
+  "type": "object",
+  "required": ["version", "phases"],
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "phases": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "items": { "$ref": "#/$defs/phase" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "phase": {
+      "type": "object",
+      "required": ["id", "number", "title", "questions"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Stable identifier (e.g. 'vision', 'data_input'). Used in answers.json keys and depends_on references."
+        },
+        "number": { "type": "integer", "minimum": 1, "maximum": 15 },
+        "title": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string" },
+        "skip_disabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, the user cannot Skip this phase. Used for Compliance (Phase 14)."
+        },
+        "depends_on": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/dependency" }
+        },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/question" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "question": {
+      "type": "object",
+      "required": ["id", "text", "kind", "modes"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "text": { "type": "string", "minLength": 1 },
+        "guidance": { "type": "string", "description": "Pros/cons text shown when expanded." },
+        "kind": {
+          "type": "string",
+          "enum": ["text", "longtext", "single_select", "multi_select", "boolean", "number", "list"]
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["value", "label"],
+            "properties": {
+              "value": { "type": "string" },
+              "label": { "type": "string" },
+              "description": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "primary_select_for": {
+          "type": "string",
+          "description": "For multi-select questions, names a related single-select that picks the 'primary'."
+        },
+        "modes": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["detailed", "simplified"] },
+          "minItems": 1
+        },
+        "rationale_field": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, an additional 'Why?' free-text field accompanies this question."
+        },
+        "required": { "type": "boolean", "default": false },
+        "depends_on": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/dependency" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "dependency": {
+      "type": "object",
+      "required": ["phase"],
+      "properties": {
+        "phase": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "questions": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

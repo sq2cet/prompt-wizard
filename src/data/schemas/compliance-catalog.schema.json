@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sq2cet/prompt-wizard/schemas/compliance-catalog.schema.json",
+  "title": "Compliance catalog",
+  "description": "Compliance regimes the wizard can surface in Phase 14. Each entry is informational only — never legal advice.",
+  "type": "object",
+  "required": ["version", "regimes"],
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "regimes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/regime" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "regime": {
+      "type": "object",
+      "required": ["label", "applies_when", "questions", "guardrail"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string" },
+        "applies_when": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "prompt_artifacts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Names of checklist artefacts the wizard should generate when this regime applies."
+        },
+        "guardrail": {
+          "type": "string",
+          "minLength": 1,
+          "description": "MUST contain language equivalent to 'not legal advice; qualified counsel must review'."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

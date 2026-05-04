@@ -1,0 +1,46 @@
+# Prerequisite catalog — tools needed to build apps in various stacks.
+# Validated against src/data/schemas/prerequisite-catalog.schema.json.
+# Notes are vendor-neutral. Brand names that imply specific employer environments are forbidden here.
+version: "0.1.0"
+
+tools:
+  node:
+    label: Node.js
+    versions: ">=20"
+    verify: "node --version"
+    install:
+      macos:   "brew install node"
+      windows: "winget install OpenJS.NodeJS"
+      linux:   "sudo apt install nodejs npm"
+    notes:
+      - Behind a TLS-inspecting proxy, set NODE_EXTRA_CA_CERTS to the proxy's CA bundle.
+      - Endpoint AV may scan node_modules during install; first install can be slow.
+
+  python:
+    label: Python
+    versions: ">=3.11"
+    verify: "python3 --version"
+    install:
+      macos:   "brew install python@3.12"
+      windows: "winget install Python.Python.3.12"
+      linux:   "sudo apt install python3.12 python3.12-venv"
+    notes:
+      - Use a venv per project; avoid touching the system Python.
+
+  git:
+    label: Git
+    verify: "git --version"
+    install:
+      macos:   "xcode-select --install"
+      windows: "winget install Git.Git"
+      linux:   "sudo apt install git"
+
+  gh:
+    label: GitHub CLI
+    verify: "gh --version"
+    install:
+      macos:   "brew install gh"
+      windows: "winget install GitHub.cli"
+      linux:   "sudo apt install gh"
+    notes:
+      - First-time auth opens a browser device-flow. If the host browser is signed in to a different account than intended, use a private browser window.

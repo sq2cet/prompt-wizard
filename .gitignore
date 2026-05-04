@@ -25,6 +25,9 @@ __pycache__/
 node_modules/
 coverage/
 
+# Build venv (build deps only — not part of the deliverable)
+.venv/
+
 # Local-only state
 session-notes.md
 .env

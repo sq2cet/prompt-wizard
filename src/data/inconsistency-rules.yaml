@@ -1,0 +1,27 @@
+# Inconsistency rules — surfaced by the rule-based pre-generation review.
+# Validated against src/data/schemas/inconsistency-rules.schema.json.
+# Skeleton: a few illustrative rules. Filled out as more domain knowledge accumulates.
+version: "0.1.0"
+
+rules:
+  - id: production_without_logging
+    severity: warning
+    when:
+      "phases.vision.answers.quality_bar.value": "production"
+      "phases.logging_observability.mode": "skipped"
+    message: |
+      You set the quality bar to "production" but skipped Phase 12 (Logging & observability).
+      Production systems usually need at least basic structured logs. Confirm you really mean to skip.
+    suggested_fix: |
+      Re-open Phase 12 and answer at least the "what gets logged" question.
+
+  - id: gdpr_without_data_residency
+    severity: conflict
+    when:
+      "phases.compliance.answers.regimes.value": { contains: "gdpr" }
+      "phases.data_store.mode": "skipped"
+    message: |
+      GDPR applies but Phase 8 (Data — Store) is skipped, so data residency is undefined.
+      Where personal data is stored matters under GDPR.
+    suggested_fix: |
+      Re-open Phase 8 and specify where data lives.
