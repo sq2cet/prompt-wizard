@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="prompt-wizard/__WIZARD_VERSION__ (data __DATA_VERSION__)">
+<title>Prompt Wizard for Claude Code</title>
+<style>
+__STYLES__
+</style>
+</head>
+<body>
+<noscript>
+  <main class="noscript">
+    <h1>Prompt Wizard</h1>
+    <p>This wizard needs JavaScript to run. It does not make any network calls — everything happens
+    locally in your browser. Enable JavaScript and reload.</p>
+  </main>
+</noscript>
+
+<div id="app" hidden></div>
+
+<!--
+  Inline JSON data blocks. These are the wizard's "brain" — read at runtime
+  by the app. JSON.parse on each on startup.
+-->
+<script id="data-question-taxonomy"  type="application/json">__DATA_QUESTION_TAXONOMY__</script>
+<script id="data-tech-stacks"        type="application/json">__DATA_TECH_STACKS__</script>
+<script id="data-prerequisites"      type="application/json">__DATA_PREREQUISITES__</script>
+<script id="data-compliance"         type="application/json">__DATA_COMPLIANCE__</script>
+<script id="data-inconsistency-rules" type="application/json">__DATA_INCONSISTENCY_RULES__</script>
+<script id="data-template-bindings"  type="application/json">__DATA_TEMPLATE_BINDINGS__</script>
+<script id="data-build-info"         type="application/json">__BUILD_INFO__</script>
+
+<script>
+__APP_JS__
+</script>
+</body>
+</html>

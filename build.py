@@ -271,12 +271,170 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# `build` subcommand: compile src/ into a single prompt-wizard.html
+# ---------------------------------------------------------------------------
+
+# Template placeholders → either a YAML data file (encoded as JSON) or a
+# fragment file. Names match `__NAME__` tokens in src/index.template.html.
+TEMPLATE_DATA_INPUTS: dict[str, str] = {
+    "DATA_QUESTION_TAXONOMY":   "src/data/question-taxonomy.yaml",
+    "DATA_TECH_STACKS":         "src/data/tech-stack-catalog.yaml",
+    "DATA_PREREQUISITES":       "src/data/prerequisite-catalog.yaml",
+    "DATA_COMPLIANCE":          "src/data/compliance-catalog.yaml",
+    "DATA_INCONSISTENCY_RULES": "src/data/inconsistency-rules.yaml",
+    "DATA_TEMPLATE_BINDINGS":   "src/data/template-bindings.yaml",
+}
+
+TEMPLATE_FRAGMENT_INPUTS: dict[str, str] = {
+    "STYLES": "src/styles.css",
+    "APP_JS": "src/app.js",
+}
+
+WIZARD_VERSION = "0.1.0"  # Single source of truth; bumped per release.
+
+
+def _git_short_sha() -> str:
+    """Best-effort short commit SHA. Empty string if not available."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "rev-parse", "--short", "HEAD"],
+            capture_output=True, check=True, text=True,
+        )
+        return out.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return ""
+
+
+def _build_timestamp() -> str:
+    """Build timestamp. Reproducible builds can pin this via SOURCE_DATE_EPOCH."""
+    import datetime as dt
+    epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    if epoch:
+        try:
+            return dt.datetime.fromtimestamp(int(epoch), tz=dt.timezone.utc).isoformat()
+        except ValueError:
+            pass
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def _data_version() -> str:
+    """Pull data_version from one of the catalogs (they all carry the same field)."""
+    try:
+        import yaml
+        text = (PROJECT_ROOT / "src/data/question-taxonomy.yaml").read_text(encoding="utf-8")
+        loaded = yaml.safe_load(text)
+        return str(loaded.get("version", "0.0.0"))
+    except Exception:
+        return "0.0.0"
+
+
 def cmd_build(args: argparse.Namespace) -> int:
-    """Compile src/ -> prompt-wizard.html. Not yet implemented."""
-    sys.stderr.write(
-        "build: not yet implemented. Run `python3 build.py scan` to verify hygiene.\n"
+    """Compile src/ → prompt-wizard.html (single-file deliverable)."""
+    try:
+        import json
+        import yaml
+    except ImportError as e:
+        sys.stderr.write(
+            f"ERROR: required Python package not installed: {e.name}\n"
+            f"Run: python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt\n"
+        )
+        return 2
+
+    template_path = PROJECT_ROOT / "src/index.template.html"
+    if not template_path.is_file():
+        sys.stderr.write(f"ERROR: missing template: {template_path}\n")
+        return 1
+
+    template = template_path.read_text(encoding="utf-8")
+
+    # Resolve data placeholders (YAML → JSON string).
+    substitutions: dict[str, str] = {}
+    for token, rel in TEMPLATE_DATA_INPUTS.items():
+        path = PROJECT_ROOT / rel
+        if not path.is_file():
+            sys.stderr.write(f"ERROR: missing data file: {rel}\n")
+            return 1
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+        # Compact JSON; safe inside <script type="application/json"> as long as
+        # we don't contain "</script>" — guarded by `_safe_json_for_inline`.
+        substitutions[token] = _safe_json_for_inline(loaded)
+
+    # Resolve fragment placeholders (raw file contents).
+    for token, rel in TEMPLATE_FRAGMENT_INPUTS.items():
+        path = PROJECT_ROOT / rel
+        if not path.is_file():
+            sys.stderr.write(f"ERROR: missing fragment: {rel}\n")
+            return 1
+        substitutions[token] = path.read_text(encoding="utf-8")
+
+    # Build-info metadata block (also surfaced inline as a JSON script tag).
+    data_version = _data_version()
+    commit_sha = os.environ.get("BUILD_COMMIT_SHA") or _git_short_sha()
+    build_info = {
+        "wizard_version": WIZARD_VERSION,
+        "data_version": data_version,
+        "claude_code_target_version": "1.x",
+        "commit_sha": commit_sha,
+        "built_at": _build_timestamp(),
+    }
+    substitutions["BUILD_INFO"] = _safe_json_for_inline(build_info)
+    substitutions["WIZARD_VERSION"] = WIZARD_VERSION
+    substitutions["DATA_VERSION"] = data_version
+
+    # Emit. Use literal string replacement to keep things simple — placeholders
+    # are unique tokens and not interpreted as regex.
+    rendered = template
+    unresolved: list[str] = []
+    for token, value in substitutions.items():
+        marker = f"__{token}__"
+        if marker not in rendered:
+            unresolved.append(token)
+            continue
+        rendered = rendered.replace(marker, value)
+
+    # Detect any remaining __FOO__ tokens in the rendered output — they would
+    # indicate a placeholder that the build forgot to populate.
+    leftover = re.findall(r"__([A-Z][A-Z0-9_]+)__", rendered)
+    if leftover:
+        sys.stderr.write(
+            "ERROR: unresolved placeholder(s) in built HTML: "
+            + ", ".join(sorted(set(leftover))) + "\n"
+        )
+        return 1
+    if unresolved:
+        sys.stderr.write(
+            "WARNING: data computed but placeholder absent from template: "
+            + ", ".join(sorted(unresolved)) + "\n"
+        )
+
+    out_path = PROJECT_ROOT / "prompt-wizard.html"
+    out_path.write_text(rendered, encoding="utf-8")
+    size_kb = len(rendered.encode("utf-8")) / 1024
+    print(
+        f"OK: built {out_path.relative_to(PROJECT_ROOT)} "
+        f"({size_kb:.1f} KB · wizard {WIZARD_VERSION} · data {data_version}"
+        + (f" · {commit_sha}" if commit_sha else "") + ")"
     )
-    return 64  # EX_USAGE
+
+    return 0
+
+
+def _safe_json_for_inline(value) -> str:
+    """JSON-encode `value` for inclusion inside an inline <script type=application/json>.
+
+    The HTML spec lets <script> end with the literal sequence `</script` so we
+    must escape any `<` that could form `</script` inside a JSON string. Browsers
+    parse JSON strings, so escaping `<` as `\\u003c` is safe and standard.
+    """
+    import json
+    return (
+        json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
 
 
 def main() -> int:

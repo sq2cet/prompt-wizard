@@ -14,6 +14,7 @@
 
 # Build artefacts (the deliverable HTML is built, not source — keep it gitignored;
 # only release artefacts are committed under a release tag)
+/prompt-wizard.html
 /dist/
 /build/
 *.bak
