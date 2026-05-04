@@ -442,3 +442,21 @@ details.q-rationale[open] summary, details.q-notes[open] summary {
 details.q-guidance p { margin: 6px 0 0; }
 
 .q-deferred, .q-skipped { font-size: 0.95rem; }
+
+/* Stale banner (Dependencies module) */
+.stale-banner {
+  border-left: 4px solid var(--warn);
+  background: var(--bg-card);
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  margin: var(--gap) 0;
+}
+.stale-banner p { margin: 0 0 12px; }
+.stale-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.stale-actions button {
+  margin: 0;
+}

@@ -137,6 +137,7 @@
 
     function init() {
       Storage.probe();
+      Dependencies.init(Data.questionTaxonomy);
       const loaded = Storage.load();
       const fresh = makeFreshState(Data.questionTaxonomy);
       if (loaded && typeof loaded === "object") {
@@ -196,11 +197,17 @@
     /**
      * Apply a synchronous in-place mutation. Used for commit-style events
      * (radio, checkbox, select, mode switch, per-question state buttons).
-     * Saves immediately, pulses the indicator, and re-renders.
+     * Saves immediately, pulses the indicator, propagates dependency
+     * staleness, and re-renders.
      */
     function commit(mutator) {
+      const before = Dependencies.snapshotKeys(state);
       mutator(state);
       state.last_modified_at = new Date().toISOString();
+      const changed = Dependencies.diff(before, state);
+      if (changed.length > 0) {
+        Dependencies.propagate(state, changed, Data.questionTaxonomy);
+      }
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
       _saveAndPulse();
     }
@@ -307,6 +314,181 @@
   })();
 
   const e = Renderer.el;
+
+  // ----- Dependencies --------------------------------------------------------
+  // Parse `depends_on` declarations from question-taxonomy.yaml and propagate
+  // staleness when an upstream answer changes. Each dependency edge is keyed
+  // by the upstream phase + question id; a downstream phase becomes stale when
+  // any of its declared upstream values flips.
+
+  const Dependencies = (function () {
+    // upstreamKeys[downstreamPhaseId] = ["upstream.qid", ...]  (every key the
+    //   downstream watches)
+    // downstreamPhases[upstreamPhaseId][upstreamQid] = ["downstream", ...]
+    let upstreamKeys = {};
+    let downstreamMap = {};
+
+    function _addEdge(downstreamPhaseId, upstreamPhaseId, upstreamQid) {
+      const key = upstreamPhaseId + "/" + upstreamQid;
+      if (!upstreamKeys[downstreamPhaseId]) upstreamKeys[downstreamPhaseId] = [];
+      if (upstreamKeys[downstreamPhaseId].indexOf(key) < 0) {
+        upstreamKeys[downstreamPhaseId].push(key);
+      }
+      if (!downstreamMap[upstreamPhaseId]) downstreamMap[upstreamPhaseId] = {};
+      if (!downstreamMap[upstreamPhaseId][upstreamQid]) downstreamMap[upstreamPhaseId][upstreamQid] = [];
+      if (downstreamMap[upstreamPhaseId][upstreamQid].indexOf(downstreamPhaseId) < 0) {
+        downstreamMap[upstreamPhaseId][upstreamQid].push(downstreamPhaseId);
+      }
+    }
+
+    function init(taxonomy) {
+      upstreamKeys = {};
+      downstreamMap = {};
+      const phases = (taxonomy && taxonomy.phases) || [];
+      for (const p of phases) {
+        // Phase-level depends_on
+        for (const dep of (p.depends_on || [])) {
+          for (const qid of (dep.questions || [])) _addEdge(p.id, dep.phase, qid);
+        }
+        // Question-level depends_on (treated as a phase-level dependency for
+        // staleness purposes — the phase itself is what is marked stale).
+        for (const q of (p.questions || [])) {
+          for (const dep of (q.depends_on || [])) {
+            for (const qid of (dep.questions || [])) _addEdge(p.id, dep.phase, qid);
+          }
+        }
+      }
+    }
+
+    function _readKey(state, key) {
+      const parts = key.split("/");
+      const phase = state.phases[parts[0]];
+      if (!phase) return undefined;
+      const a = phase.answers[parts[1]];
+      if (!a) return undefined;
+      // Use a deterministic string form so we can compare across mutations.
+      return JSON.stringify(a.value === undefined ? null : a.value);
+    }
+
+    /**
+     * Snapshot the values of every dependency-watched key. Compare the result
+     * before and after a mutation to find which keys changed.
+     */
+    function snapshotKeys(state) {
+      const out = {};
+      for (const downstream in upstreamKeys) {
+        for (const key of upstreamKeys[downstream]) {
+          if (!(key in out)) out[key] = _readKey(state, key);
+        }
+      }
+      return out;
+    }
+
+    function diff(beforeSnapshot, state) {
+      const after = snapshotKeys(state);
+      const changedKeys = [];
+      for (const key in beforeSnapshot) {
+        if (beforeSnapshot[key] !== after[key]) changedKeys.push(key);
+      }
+      return changedKeys;
+    }
+
+    /**
+     * Given the keys that changed, mark every dependent phase stale.
+     * Returns the array of phase ids that became newly stale.
+     */
+    function propagate(state, changedKeys, taxonomy) {
+      const now = new Date().toISOString();
+      const titleOf = (function () {
+        const m = {};
+        for (const p of ((taxonomy && taxonomy.phases) || [])) m[p.id] = p.title;
+        return function (id) { return m[id] || id; };
+      })();
+      const newlyStale = [];
+      for (const key of changedKeys) {
+        const parts = key.split("/");
+        const upstreamPhase = parts[0];
+        const upstreamQ = parts[1];
+        const dependents = (downstreamMap[upstreamPhase] || {})[upstreamQ] || [];
+        for (const downstream of dependents) {
+          const ph = state.phases[downstream];
+          if (!ph) continue;
+          // Only the very first change records the stale_since; subsequent
+          // changes update the reason but keep the original timestamp so the
+          // user sees "this has been waiting for review" rather than a moving
+          // target.
+          const wasStale = ph.stale_since && !ph.user_acknowledged_stale;
+          ph.stale_reason = "Upstream phase “" + titleOf(upstreamPhase) + "” changed.";
+          ph.user_acknowledged_stale = false;
+          if (!wasStale) {
+            ph.stale_since = now;
+            newlyStale.push(downstream);
+          }
+        }
+      }
+      return newlyStale;
+    }
+
+    function dependentsOf(upstreamPhaseId) {
+      const out = [];
+      for (const q in (downstreamMap[upstreamPhaseId] || {})) {
+        for (const d of downstreamMap[upstreamPhaseId][q]) {
+          if (out.indexOf(d) < 0) out.push(d);
+        }
+      }
+      return out;
+    }
+
+    return { init, snapshotKeys, diff, propagate, dependentsOf };
+  })();
+
+  // ----- Inconsistency engine ------------------------------------------------
+  // Rule-based: each rule has a `when` map (path → expected literal or
+  // operator object). All conditions must match for the rule to fire.
+  // No AI; deterministic and inspectable.
+
+  const Inconsistency = (function () {
+    function getByPath(obj, path) {
+      const parts = path.split(".");
+      let cur = obj;
+      for (const p of parts) {
+        if (cur == null) return undefined;
+        cur = cur[p];
+      }
+      return cur;
+    }
+
+    function matchValue(actual, expected) {
+      if (expected === null || typeof expected !== "object") return actual === expected;
+      // Operator object — supports `contains` (array membership) and `equals`.
+      if ("contains" in expected) return Array.isArray(actual) && actual.indexOf(expected.contains) >= 0;
+      if ("equals" in expected)   return actual === expected.equals;
+      if ("not_equals" in expected) return actual !== expected.not_equals;
+      return false;
+    }
+
+    function evaluate(state, rules) {
+      const violations = [];
+      for (const rule of (rules || [])) {
+        let allMatched = true;
+        for (const path in (rule.when || {})) {
+          if (!matchValue(getByPath(state, path), rule.when[path])) {
+            allMatched = false;
+            break;
+          }
+        }
+        if (allMatched) violations.push(rule);
+      }
+      return violations;
+    }
+
+    function evaluateNow() {
+      const rulesDoc = Data.inconsistencyRules || {};
+      return evaluate(State.get(), rulesDoc.rules || []);
+    }
+
+    return { evaluate, evaluateNow };
+  })();
 
   // ----- PreflightScreen -----------------------------------------------------
 
@@ -871,25 +1053,75 @@
       };
     }
 
+    function renderStaleBanner(phase, ps) {
+      if (!ps.stale_since || ps.user_acknowledged_stale) return null;
+
+      function reAnswer() {
+        State.commit(function (s) {
+          const ph = s.phases[phase.id];
+          ph.stale_since = null;
+          ph.stale_reason = null;
+          ph.user_acknowledged_stale = false;
+        });
+      }
+      function markStillValid() {
+        State.commit(function (s) {
+          s.phases[phase.id].user_acknowledged_stale = true;
+        });
+      }
+      function resetPhase() {
+        const msg = "Reset every answer in “" + phase.title + "”? This cannot be undone.";
+        if (!window.confirm(msg)) return;
+        State.commit(function (s) {
+          const ph = s.phases[phase.id];
+          ph.answers = {};
+          ph.phase_comment = "";
+          ph.stale_since = null;
+          ph.stale_reason = null;
+          ph.user_acknowledged_stale = false;
+        });
+      }
+
+      return e("div", { class: "stale-banner", role: "alert" }, [
+        e("p", null, [
+          e("strong", null, "Needs review. "),
+          ps.stale_reason || "An answer this phase depends on has changed.",
+          " Some of your answers below may need updating.",
+        ]),
+        e("div", { class: "stale-actions" }, [
+          e("button", { type: "button", class: "primary", onclick: reAnswer }, "Re-answer"),
+          e("button", { type: "button", onclick: markStillValid }, "Mark still valid"),
+          e("button", { type: "button", onclick: resetPhase }, "Reset this phase"),
+        ]),
+      ]);
+    }
+
     function renderPhaseBody(phase, ps) {
+      const stale = renderStaleBanner(phase, ps);
       if (ps.mode === "skipped") {
-        return e("div", { class: "card phase-body" }, [
-          e("p", { class: "muted" }, [
-            "Phase marked Skipped. A sensible default will be applied. Switch to Detailed or Simplified above to answer.",
+        return e("div", null, [
+          stale,
+          e("div", { class: "card phase-body" }, [
+            e("p", { class: "muted" }, [
+              "Phase marked Skipped. A sensible default will be applied. Switch to Detailed or Simplified above to answer.",
+            ]),
           ]),
         ]);
       }
       const visibleQuestions = questionsForMode(phase, ps.mode);
       if (visibleQuestions.length === 0) {
-        return e("div", { class: "card phase-body" }, [
-          e("p", { class: "muted" }, "No questions yet for this phase. Detailed-mode content lands as the build advances."),
+        return e("div", null, [
+          stale,
+          e("div", { class: "card phase-body" }, [
+            e("p", { class: "muted" }, "No questions yet for this phase. Detailed-mode content lands as the build advances."),
+          ]),
         ]);
       }
       const helpers = buildHelpers(phase);
       const cards = visibleQuestions.map(function (q) {
         return Question.render(phase.id, q, helpers);
       });
-      return e("div", { class: "phase-questions" }, cards);
+      return e("div", null, [stale, e("div", { class: "phase-questions" }, cards)]);
     }
 
     function render(phaseId) {
