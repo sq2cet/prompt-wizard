@@ -315,6 +315,76 @@
 
   const e = Renderer.el;
 
+  // ----- A11y ----------------------------------------------------------------
+  // Announces changes (route, save status) to assistive tech via a single
+  // visually-hidden ARIA live region. Manages programmatic focus moves on
+  // route changes so screen readers read the new heading.
+  //
+  // Note: this module deliberately does NOT announce every save event — that
+  // would flood screen readers during a typing session. Only non-OK save
+  // states are surfaced.
+
+  const A11y = (function () {
+    const LIVE_ID = "aria-live-region";
+    let lastSaveStatusAnnounced = null;
+
+    function _ensureRegion() {
+      let node = document.getElementById(LIVE_ID);
+      if (!node) {
+        node = document.createElement("div");
+        node.id = LIVE_ID;
+        node.className = "sr-only";
+        node.setAttribute("aria-live", "polite");
+        node.setAttribute("aria-atomic", "true");
+        document.body.appendChild(node);
+      }
+      return node;
+    }
+
+    function announce(text) {
+      if (!text) return;
+      const node = _ensureRegion();
+      node.textContent = "";
+      setTimeout(function () { node.textContent = String(text); }, 30);
+    }
+
+    function announcePhaseChange(target) {
+      if (target === "review") {
+        announce("Review and generate. Step 16 of 16.");
+        return;
+      }
+      if (target === "preview") {
+        announce("Bundle preview. Read-only viewer.");
+        return;
+      }
+      const taxonomy = Data && Data.questionTaxonomy;
+      const phases = (taxonomy && taxonomy.phases) || [];
+      const p = phases.find(function (ph) { return ph.id === target; });
+      if (!p) return;
+      announce("Phase " + p.number + " of 15: " + p.title);
+    }
+
+    function announceSaveStatusIfNotable() {
+      const s = State.getSaveStatus();
+      if (s === lastSaveStatusAnnounced) return;
+      lastSaveStatusAnnounced = s;
+      if (s === "error") announce("Save failed. Use Export answers to keep your progress.");
+      else if (s === "fallback") announce("Saved in memory only. Export answers to keep your progress.");
+      // ok / saving / idle / pending → silent; the dot suffices.
+    }
+
+    function focusHeading(host) {
+      if (!host) return;
+      const h1 = host.querySelector("main h1");
+      if (!h1) return;
+      h1.setAttribute("tabindex", "-1");
+      try { h1.focus({ preventScroll: false }); }
+      catch (_) { h1.focus(); }
+    }
+
+    return { announce, announcePhaseChange, announceSaveStatusIfNotable, focusHeading };
+  })();
+
   // ----- Dependencies --------------------------------------------------------
   // Parse `depends_on` declarations from question-taxonomy.yaml and propagate
   // staleness when an upstream answer changes. Each dependency edge is keyed
@@ -742,26 +812,31 @@
       const items = phases.map(function (p) {
         const ps = state.phases[p.id];
         const isCurrent = p.id === currentId;
+        const attrs = {
+          type: "button",
+          class: "nav-item" + (isCurrent ? " is-current" : ""),
+          onclick: function () { Router.go(p.id); },
+        };
+        if (isCurrent) attrs["aria-current"] = "page";
         return e("li", null, [
-          e("button", {
-            type: "button",
-            class: "nav-item" + (isCurrent ? " is-current" : ""),
-            onclick: function () { Router.go(p.id); },
-          }, [
-            e("span", { class: "nav-num" }, String(p.number) + "."),
-            e("span", { class: "nav-title" }, p.title),
-            e("span", { class: "nav-status", "aria-label": _ariaForPhase(ps) }, statusIconFor(ps)),
+          e("button", attrs, [
+            e("span", { class: "nav-num", "aria-hidden": "true" }, String(p.number) + "."),
+            e("span", { class: "nav-title" }, "Phase " + p.number + ": " + p.title),
+            e("span", { class: "nav-status", "aria-label": _ariaForPhase(ps), "aria-hidden": "false" }, statusIconFor(ps)),
           ]),
         ]);
       });
+      const reviewIsCurrent = currentId === "review" || currentId === "preview";
+      const reviewAttrs = {
+        type: "button",
+        class: "nav-item nav-item-review" + (reviewIsCurrent ? " is-current" : ""),
+        onclick: function () { Router.go("review"); },
+      };
+      if (reviewIsCurrent) reviewAttrs["aria-current"] = "page";
       const reviewItem = e("li", null, [
-        e("button", {
-          type: "button",
-          class: "nav-item nav-item-review" + (currentId === "review" || currentId === "preview" ? " is-current" : ""),
-          onclick: function () { Router.go("review"); },
-        }, [
-          e("span", { class: "nav-num" }, "▶"),
-          e("span", { class: "nav-title" }, "Review & generate"),
+        e("button", reviewAttrs, [
+          e("span", { class: "nav-num", "aria-hidden": "true" }, "▶"),
+          e("span", { class: "nav-title" }, "Review and generate"),
           e("span", { class: "nav-status" }),
         ]),
       ]);
@@ -859,39 +934,44 @@
 
     // ---- Input renderers, one per kind ----
 
-    function renderText(phaseId, q, a) {
-      return e("input", {
+    function _commonAttrs(q, guidanceId) {
+      const attrs = { "aria-label": q.text };
+      if (q.required === true) attrs["aria-required"] = "true";
+      if (guidanceId) attrs["aria-describedby"] = guidanceId;
+      return attrs;
+    }
+
+    function renderText(phaseId, q, a, guidanceId) {
+      return e("input", Object.assign({
         type: "text",
         class: "q-input",
         value: a.value || "",
-        "aria-label": q.text,
         oninput: function (ev) { setText(phaseId, q, ev.currentTarget.value); },
         onblur: function () { State.flushPending(); },
-      });
+      }, _commonAttrs(q, guidanceId)));
     }
 
-    function renderLongtext(phaseId, q, a) {
-      return e("textarea", {
+    function renderLongtext(phaseId, q, a, guidanceId) {
+      return e("textarea", Object.assign({
         class: "q-input q-textarea",
         rows: "4",
-        "aria-label": q.text,
         value: a.value || "",
         oninput: function (ev) { setText(phaseId, q, ev.currentTarget.value); },
         onblur: function () { State.flushPending(); },
-      });
+      }, _commonAttrs(q, guidanceId)));
     }
 
-    function renderNumber(phaseId, q, a) {
-      return e("input", {
+    function renderNumber(phaseId, q, a, guidanceId) {
+      return e("input", Object.assign({
         type: "number",
         class: "q-input",
         value: (a.value == null ? "" : String(a.value)),
-        "aria-label": q.text,
         oninput: function (ev) {
           const raw = ev.currentTarget.value;
           setText(phaseId, q, raw === "" ? null : Number(raw));
         },
-      });
+        onblur: function () { State.flushPending(); },
+      }, _commonAttrs(q, guidanceId)));
     }
 
     function renderList(phaseId, q, a) {
@@ -1016,13 +1096,16 @@
     function render(phaseId, q, helpers) {
       const a = answerOf(phaseId, q.id);
       const required = q.required === true;
+      const guidanceId = q.guidance ? ("guidance-" + phaseId + "-" + q.id) : null;
 
       // Per-question state buttons: Answered (default) / Defer / Skip
-      function stateBtn(label, target) {
+      function stateBtn(label, target, extraLabel) {
         return e("button", {
           type: "button",
           class: "q-state-btn" + (a.state === target ? " is-active" : ""),
           onclick: function () { setQuestionState(phaseId, q, target); },
+          "aria-label": extraLabel || (label + " — " + q.text),
+          "aria-pressed": a.state === target ? "true" : "false",
         }, label);
       }
 
@@ -1039,9 +1122,9 @@
         ]);
       } else {
         // Render the input by kind.
-        if (q.kind === "text")              body = renderText(phaseId, q, a);
-        else if (q.kind === "longtext")     body = renderLongtext(phaseId, q, a);
-        else if (q.kind === "number")       body = renderNumber(phaseId, q, a);
+        if (q.kind === "text")              body = renderText(phaseId, q, a, guidanceId);
+        else if (q.kind === "longtext")     body = renderLongtext(phaseId, q, a, guidanceId);
+        else if (q.kind === "number")       body = renderNumber(phaseId, q, a, guidanceId);
         else if (q.kind === "list")         body = renderList(phaseId, q, a);
         else if (q.kind === "boolean")      body = renderBoolean(phaseId, q, a);
         else if (q.kind === "multi_select") body = renderMultiSelect(phaseId, q, a);
@@ -1058,7 +1141,7 @@
       const guidance = q.guidance
         ? e("details", { class: "q-guidance" }, [
             e("summary", null, "Why is this asked?"),
-            e("p", { class: "muted" }, q.guidance),
+            e("p", { class: "muted", id: guidanceId }, q.guidance),
           ])
         : null;
 
@@ -1222,7 +1305,7 @@
       const taxonomy = Data.questionTaxonomy;
       const phase = ((taxonomy && taxonomy.phases) || []).find(function (p) { return p.id === phaseId; });
       if (!phase) {
-        return e("main", { class: "main", role: "main" }, [
+        return e("main", { class: "main", role: "main", id: "app-main" }, [
           e("p", { class: "kicker" }, "Unknown phase"),
           e("h1", null, "Phase not found"),
           e("p", null, "Pick a phase from the sidebar."),
@@ -1250,7 +1333,7 @@
 
       const skipDisabled = phase.skip_disabled === true;
 
-      return e("main", { class: "main", role: "main" }, [
+      return e("main", { class: "main", role: "main", id: "app-main" }, [
         e("p", { class: "kicker" }, "Phase " + phase.number + " of 15"),
         e("h1", null, phase.title),
         phase.summary ? e("p", { class: "muted" }, phase.summary) : null,
@@ -1459,7 +1542,7 @@
     }
 
     function render() {
-      return e("main", { class: "main review", role: "main" }, [
+      return e("main", { class: "main review", role: "main", id: "app-main" }, [
         e("p", { class: "kicker" }, "Review · Phase 16 of 16"),
         e("h1", null, "Review & generate"),
         e("p", { class: "muted" }, [
@@ -1539,7 +1622,7 @@
     }
 
     function render() {
-      return e("main", { class: "main preview", role: "main" }, [
+      return e("main", { class: "main preview", role: "main", id: "app-main" }, [
         e("p", { class: "kicker" }, "Preview"),
         e("div", { class: "preview-head" }, [
           e("h1", null, "Bundle preview"),
@@ -1563,6 +1646,7 @@
 
   const WizardApp = (function () {
     let host = null;
+    let lastRoute = null;
 
     function _phaseIds() {
       return ((Data.questionTaxonomy && Data.questionTaxonomy.phases) || []).map(function (p) { return p.id; });
@@ -1586,6 +1670,7 @@
       else                           mainView = PhaseShell.render(target);
 
       host.appendChild(e("div", { class: "app-shell" }, [
+        e("a", { href: "#app-main", class: "skip-link" }, "Skip to main content"),
         HeaderBar.render(),
         e("div", { class: "app-body" }, [
           NavSidebar.render(target),
@@ -1593,6 +1678,21 @@
         ]),
       ]));
       if (Router.current() !== target) Router.go(target);
+
+      // After paint, surface the change to assistive tech.
+      // Only move focus and announce on actual route changes — re-rendering
+      // for state updates (radio click, mode switch, etc.) must not steal
+      // focus away from the control the user just interacted with.
+      if (target !== lastRoute) {
+        lastRoute = target;
+        // Defer to the next tick so the new DOM is in place.
+        setTimeout(function () {
+          A11y.focusHeading(host);
+          A11y.announcePhaseChange(target);
+        }, 0);
+      }
+      // Save status changes are surfaced separately (only non-OK states).
+      A11y.announceSaveStatusIfNotable();
     }
 
     function mount(target) {
