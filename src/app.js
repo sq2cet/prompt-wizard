@@ -35,6 +35,7 @@
       compliance:         readJsonScript("data-compliance"),
       inconsistencyRules: readJsonScript("data-inconsistency-rules"),
       templateBindings:   readJsonScript("data-template-bindings"),
+      aiSystemPrompt:     readJsonScript("data-ai-system-prompt") || "",
       buildInfo:          readJsonScript("data-build-info") || {},
     };
   })();
@@ -900,6 +901,320 @@
       hasConsent, recordConsent,
       getUsage, addUsage, resetUsage,
       modelInfo, validateKey,
+    };
+  })();
+
+  // ----- Claude (V2.4) -------------------------------------------------------
+  //
+  // Anthropic Messages API client for the AI review loop. Sends the current
+  // wizard state plus the question taxonomy structure to Claude, parses a
+  // tool-use response (`request_review` tool), and returns a normalised list
+  // of issues plus token-count metadata. CORS is unblocked via
+  // `anthropic-dangerous-direct-browser-access: true`. The API key is read
+  // from AISettings (localStorage) and is never serialised into project state.
+  //
+  // V2.4 scope: round-trip only. Per-question banners + Accept/Change/Reject
+  // land in V2.5; the iteration loop (Send updated answers, I'm done,
+  // 5-iteration cap) lands in V2.6.
+  //
+  // The tool definition mirrors the V2 plan's `request_review` schema. Any
+  // user-facing text the model would otherwise emit must be packed inside
+  // the tool call — `tool_choice` forces this.
+
+  const Claude = (function () {
+    const ENDPOINT = "https://api.anthropic.com/v1/messages";
+    const ANTHROPIC_VERSION = "2023-06-01";
+
+    const TOOL_DEFINITION = {
+      name: "request_review",
+      description:
+        "Surface holistic data-quality issues across the user's answers. Each issue is shown inline next to its target question with Accept/Change/Reject actions.",
+      input_schema: {
+        type: "object",
+        required: ["ready_to_generate", "issues"],
+        properties: {
+          ready_to_generate: { type: "boolean" },
+          summary: {
+            type: "string",
+            description:
+              "One-sentence summary surfaced at the top of the AI Review screen.",
+          },
+          issues: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["kind", "phase_id", "comment", "suggestion"],
+              properties: {
+                kind: {
+                  type: "string",
+                  enum: [
+                    "ambiguity", "conflict", "duplicate",
+                    "misplaced", "redundant", "missing_context",
+                  ],
+                },
+                phase_id: {
+                  type: "string",
+                  description:
+                    "Phase the issue is anchored to (where the inline banner appears).",
+                },
+                question_id: {
+                  type: "string",
+                  description:
+                    "Question id within that phase. Omit for phase-level issues (e.g. duplicate phase_comment).",
+                },
+                comment: {
+                  type: "string",
+                  maxLength: 400,
+                  description:
+                    "Plain-English explanation. The user reads this in 5 – 10 seconds.",
+                },
+                suggestion: {
+                  type: "string",
+                  maxLength: 400,
+                  description:
+                    "Concrete proposed change the user can Accept directly. Required.",
+                },
+                related: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    required: ["phase_id"],
+                    properties: {
+                      phase_id:    { type: "string" },
+                      question_id: { type: "string" },
+                    },
+                  },
+                  description:
+                    "Other questions this issue references — e.g. the OTHER copy of a duplicate.",
+                },
+                severity: {
+                  type: "string",
+                  enum: ["info", "warning", "conflict"],
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    /**
+     * Build a slimmed taxonomy view for the user prompt. We don't need every
+     * help string and rationale — only the structural shape so Claude can
+     * cite phases / questions by id without hallucinating.
+     */
+    function buildTaxonomySnapshot(taxonomy) {
+      const phases = (taxonomy && taxonomy.phases) || [];
+      return phases.map(function (p) {
+        return {
+          id:        p.id,
+          number:    p.number,
+          title:     p.title,
+          questions: (p.questions || []).map(function (q) {
+            return {
+              id:    q.id,
+              kind:  q.kind,
+              label: q.label,
+            };
+          }),
+        };
+      });
+    }
+
+    /**
+     * Strip the API key and other browser-only fields from the state before
+     * sending. Right now the state never includes the key, but we keep this
+     * defensive so future fields don't leak by accident.
+     */
+    function buildStateSnapshot(state) {
+      // Shallow clone — `phases` is the only nested branch we ship and it's
+      // safe to send wholesale (no secrets, no DOM handles).
+      const out = {};
+      for (const k of Object.keys(state || {})) {
+        if (k === "ai_settings") continue; // never ship config blobs
+        out[k] = state[k];
+      }
+      return out;
+    }
+
+    /**
+     * Summarise prior iterations (compact form) for repeat calls. V2.4 only
+     * makes one call; this function is forward-compat for V2.6's loop.
+     */
+    function summarisePriorIterations(state) {
+      const ai = (state && state.ai_review) || {};
+      const iters = (ai.iterations || []);
+      if (iters.length === 0) return "(none — this is the first review pass.)";
+      return iters.map(function (it, idx) {
+        const responseCounts = {};
+        for (const r of Object.values(it.user_responses || {})) {
+          responseCounts[r.kind] = (responseCounts[r.kind] || 0) + 1;
+        }
+        return [
+          "Iteration " + (idx + 1) + ":",
+          "  surfaced " + ((it.issues || []).length) + " issue(s);",
+          "  user responses: " + JSON.stringify(responseCounts) + ".",
+        ].join(" ");
+      }).join("\n");
+    }
+
+    /**
+     * Compose the user-prompt text. Three sections, in order.
+     */
+    function buildUserPrompt(state, taxonomy) {
+      const taxonomySnap = buildTaxonomySnapshot(taxonomy);
+      const stateSnap = buildStateSnapshot(state);
+      const priorSummary = summarisePriorIterations(state);
+
+      return [
+        "# Question taxonomy",
+        "",
+        "Below is the structural shape of the wizard — the phases and the",
+        "questions inside each phase. Use these `id` values when emitting issues.",
+        "",
+        "```json",
+        JSON.stringify(taxonomySnap, null, 2),
+        "```",
+        "",
+        "# Current answers",
+        "",
+        "Below is the user's full state. The `phases` map keys are phase ids;",
+        "each phase has `mode` (detailed / simplified / skipped), an `answers`",
+        "map keyed by question id, and an optional free-text `phase_comment`.",
+        "",
+        "```json",
+        JSON.stringify(stateSnap, null, 2),
+        "```",
+        "",
+        "# Prior iterations",
+        "",
+        priorSummary,
+        "",
+        "# What to do",
+        "",
+        "Use the `request_review` tool to return your findings. Follow the",
+        "instructions in the system prompt — concise comments, one issue per",
+        "finding, always include a `suggestion` the user can Accept directly.",
+      ].join("\n");
+    }
+
+    /**
+     * Extract the request_review tool input from a Messages-API response.
+     * Returns { ok, payload?, error? }. The Anthropic response shape is
+     * `{content: [{type: "tool_use", name: "request_review", input: {...}}, ...]}`.
+     */
+    function extractToolUse(response) {
+      if (!response || !Array.isArray(response.content)) {
+        return { ok: false, error: "Response missing `content` array." };
+      }
+      for (const block of response.content) {
+        if (block && block.type === "tool_use" && block.name === "request_review") {
+          return { ok: true, payload: block.input || {} };
+        }
+      }
+      return { ok: false, error: "Response did not include a `request_review` tool call." };
+    }
+
+    /**
+     * Run a single review pass against the current state. Returns
+     *   { ok: true,  iteration }  on success, or
+     *   { ok: false, reason, error?, status? }  on failure.
+     *
+     * `iteration` is the record to push onto `state.ai_review.iterations`.
+     */
+    async function review(state, taxonomy) {
+      const key = AISettings.getApiKey();
+      if (!key) return { ok: false, reason: "no_key" };
+
+      const cfg = AISettings.getConfig();
+      const model = cfg.model || AISettings.DEFAULTS.model;
+      const systemPrompt = (Data && Data.aiSystemPrompt) || "";
+
+      if (!systemPrompt) {
+        return { ok: false, reason: "no_system_prompt",
+                 error: "Build is missing the AI review system prompt." };
+      }
+
+      const body = {
+        model: model,
+        max_tokens: 4096,
+        system: systemPrompt,
+        tools: [TOOL_DEFINITION],
+        tool_choice: { type: "tool", name: "request_review" },
+        messages: [
+          { role: "user", content: buildUserPrompt(state, taxonomy) },
+        ],
+      };
+
+      let response;
+      try {
+        response = await fetch(ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": ANTHROPIC_VERSION,
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify(body),
+        });
+      } catch (err) {
+        return { ok: false, reason: "network",
+                 error: (err && err.message) ? err.message : String(err) };
+      }
+
+      if (!response.ok) {
+        let errMsg = "HTTP " + response.status;
+        try {
+          const errBody = await response.json();
+          if (errBody && errBody.error && errBody.error.message) errMsg = errBody.error.message;
+        } catch (_) {}
+        return { ok: false, reason: "api_error", status: response.status, error: errMsg };
+      }
+
+      let payload;
+      try { payload = await response.json(); }
+      catch (err) {
+        return { ok: false, reason: "parse",
+                 error: "Could not parse JSON response: " + (err && err.message ? err.message : err) };
+      }
+
+      const tool = extractToolUse(payload);
+      if (!tool.ok) {
+        return { ok: false, reason: "no_tool_use", error: tool.error };
+      }
+
+      const usage = (payload && payload.usage) || {};
+      const inputTokens  = (usage.input_tokens  | 0);
+      const outputTokens = (usage.output_tokens | 0);
+      AISettings.addUsage(inputTokens, outputTokens);
+
+      // Assign client-side stable ids so V2.5 can key user_responses by id.
+      const issuesIn = Array.isArray(tool.payload.issues) ? tool.payload.issues : [];
+      const issues = issuesIn.map(function (iss, idx) {
+        return Object.assign({ id: "iss-" + (idx + 1) }, iss);
+      });
+
+      const iteration = {
+        timestamp:     new Date().toISOString(),
+        model:         (payload && payload.model) || model,
+        input_tokens:  inputTokens,
+        output_tokens: outputTokens,
+        ready_to_generate: !!tool.payload.ready_to_generate,
+        summary:       (typeof tool.payload.summary === "string") ? tool.payload.summary : "",
+        issues:        issues,
+        user_responses: {},
+      };
+
+      return { ok: true, iteration: iteration };
+    }
+
+    return {
+      review: review,
+      // Exposed for unit-testability and for V2.6's loop to reuse.
+      buildUserPrompt: buildUserPrompt,
+      buildTaxonomySnapshot: buildTaxonomySnapshot,
+      TOOL_DEFINITION: TOOL_DEFINITION,
     };
   })();
 
@@ -2077,6 +2392,59 @@
   // ----- ReviewScreen --------------------------------------------------------
 
   const ReviewScreen = (function () {
+    // V2.4: in-flight UI state for the "Get AI review" button. Lives outside
+    // wizard state on purpose — these flags are session-only and reset on
+    // every reload. The persisted iterations are still on State.ai_review.
+    let aiBusy   = false;
+    let aiError  = null;
+
+    // The wizard's Settings modal exports `mount(host, opts)` rather than a
+    // global `open()`. We reuse the same plumbing the header gear icon uses:
+    // mount over #app and re-mount the wizard on close. The route is
+    // preserved automatically by WizardApp.mount.
+    function openSettingsModal() {
+      const host = document.getElementById("app");
+      if (!host) return;
+      SettingsModal.mount(host, {
+        onClose: function () { WizardApp.mount(host); },
+      });
+    }
+
+    function latestIteration() {
+      const ai = State.get().ai_review;
+      const iters = (ai && ai.iterations) || [];
+      return iters.length > 0 ? iters[iters.length - 1] : null;
+    }
+
+    function findPhase(phaseId) {
+      const taxonomy = Data.questionTaxonomy;
+      const phases = (taxonomy && taxonomy.phases) || [];
+      return phases.find(function (p) { return p.id === phaseId; }) || null;
+    }
+
+    function findQuestion(phase, qid) {
+      if (!phase) return null;
+      return (phase.questions || []).find(function (q) { return q.id === qid; }) || null;
+    }
+
+    function ISSUE_KIND_LABELS() {
+      return {
+        ambiguity:        "Ambiguity",
+        conflict:         "Conflict",
+        duplicate:        "Duplicate",
+        misplaced:        "Misplaced",
+        redundant:        "Redundant",
+        missing_context:  "Missing context",
+      };
+    }
+
+    function severityClass(sev, kind) {
+      // Per the V2 plan: red for conflict; amber for ambiguity / missing /
+      // duplicate / redundant; blue for misplaced.
+      if (sev === "conflict" || kind === "conflict") return "ai-issue-conflict";
+      if (kind === "misplaced") return "ai-issue-misplaced";
+      return "ai-issue-warning";
+    }
 
     function staleIssues() {
       const taxonomy = Data.questionTaxonomy;
@@ -2246,15 +2614,193 @@
       ]);
     }
 
+    async function runAIReview() {
+      // No key → open Settings (same UX as the V2 plan's "first AI button click").
+      if (!AISettings.hasApiKey()) {
+        openSettingsModal();
+        return;
+      }
+      aiBusy = true;
+      aiError = null;
+      WizardApp.rerender();
+      try {
+        const result = await Claude.review(State.get(), Data.questionTaxonomy);
+        if (!result.ok) {
+          aiError = result.error
+            ? (result.reason ? "[" + result.reason + "] " + result.error : result.error)
+            : ("Review failed: " + (result.reason || "unknown reason"));
+          return;
+        }
+        State.commit(function (s) {
+          if (!s.ai_review) {
+            s.ai_review = {
+              iterations: [],
+              ready_to_generate: false,
+              stopped_by: null,
+              total_input_tokens: 0,
+              total_output_tokens: 0,
+            };
+          }
+          s.ai_review.iterations.push(result.iteration);
+          s.ai_review.ready_to_generate = !!result.iteration.ready_to_generate;
+          s.ai_review.total_input_tokens  =
+            (s.ai_review.total_input_tokens  | 0) + (result.iteration.input_tokens  | 0);
+          s.ai_review.total_output_tokens =
+            (s.ai_review.total_output_tokens | 0) + (result.iteration.output_tokens | 0);
+        });
+      } catch (err) {
+        aiError = (err && err.message) ? err.message : String(err);
+      } finally {
+        aiBusy = false;
+        WizardApp.rerender();
+      }
+    }
+
+    function renderAIReviewIssue(iss) {
+      const phase = findPhase(iss.phase_id);
+      const question = findQuestion(phase, iss.question_id);
+      const labels = ISSUE_KIND_LABELS();
+      const kindLabel = labels[iss.kind] || iss.kind;
+      const heading = "Claude says — " + kindLabel
+        + (phase ? (" · Phase " + phase.number + " (" + phase.title + ")") : "")
+        + (question ? (" → " + (question.label || question.id)) : "");
+      const related = (iss.related && iss.related.length)
+        ? e("p", { class: "muted ai-issue-related" }, [
+            "Related: ",
+            iss.related.map(function (r, idx) {
+              const rp = findPhase(r.phase_id);
+              const label = rp ? ("Phase " + rp.number + (r.question_id ? (" → " + r.question_id) : "")) : r.phase_id;
+              return e("span", null, (idx > 0 ? " · " : "") + label);
+            }),
+          ])
+        : null;
+
+      const cls = "ai-issue " + severityClass(iss.severity, iss.kind);
+      return e("article", { class: cls }, [
+        e("header", { class: "ai-issue-head" }, [
+          e("strong", null, heading),
+        ]),
+        e("p", { class: "ai-issue-comment" }, iss.comment || ""),
+        iss.suggestion
+          ? e("p", { class: "ai-issue-suggestion" }, [
+              e("strong", null, "Suggestion: "),
+              iss.suggestion,
+            ])
+          : null,
+        related,
+        // V2.5 will land Accept / Change / Reject controls here. For V2.4 we
+        // surface an explicit "Open phase →" so the user can navigate manually.
+        phase ? e("p", null, [
+          e("button", {
+            type: "button",
+            class: "link",
+            onclick: function () { Router.go(phase.id); },
+          }, "Open phase →"),
+        ]) : null,
+      ]);
+    }
+
+    function renderAIReviewPanel() {
+      const cfg = AISettings.getConfig();
+      const hasKey = AISettings.hasApiKey();
+      const last = latestIteration();
+      const usage = AISettings.getUsage();
+
+      const buttonLabel = aiBusy
+        ? "Reviewing… (10 – 30s)"
+        : (last ? "Run another AI review" : "Get AI review");
+
+      const headerRow = e("div", { class: "ai-review-head" }, [
+        e("h2", null, "AI review"),
+        e("div", { class: "ai-review-meta" }, [
+          hasKey
+            ? e("span", { class: "muted" }, [
+                "Model: ", e("code", null, cfg.model || AISettings.DEFAULTS.model),
+                " · Total: ",
+                String(usage.input_tokens | 0), " in / ",
+                String(usage.output_tokens | 0), " out tokens",
+              ])
+            : e("span", { class: "muted" },
+                "No API key configured. Click Get AI review to set one up."),
+        ]),
+      ]);
+
+      const buttonRow = e("div", { class: "ai-review-actions" }, [
+        e("button", {
+          type: "button",
+          class: "primary",
+          onclick: runAIReview,
+          disabled: aiBusy ? true : null,
+        }, buttonLabel),
+        hasKey
+          ? e("button", { type: "button", class: "link",
+              onclick: function () { openSettingsModal(); } }, "AI settings")
+          : null,
+      ]);
+
+      const errorRow = aiError
+        ? e("div", { class: "ai-review-error", role: "alert" }, [
+            e("strong", null, "AI review failed. "),
+            aiError,
+          ])
+        : null;
+
+      let body = null;
+      if (aiBusy) {
+        body = e("p", { class: "muted ai-review-status", role: "status" },
+          "Sending your answers to Claude. This usually takes 10 – 30 seconds.");
+      } else if (last) {
+        const issues = last.issues || [];
+        const summary = last.summary
+          ? e("p", { class: "ai-review-summary" }, [
+              e("strong", null, "Summary: "), last.summary,
+            ])
+          : null;
+        const readyBanner = last.ready_to_generate
+          ? e("p", { class: "ai-review-ready", role: "status" },
+              "✓ Claude says these answers are ready to generate.")
+          : null;
+        const issueList = issues.length === 0
+          ? e("p", { class: "muted" },
+              last.ready_to_generate
+                ? "No issues surfaced — you're good to generate."
+                : "Claude returned no issues, but did not flag the answers as ready. You can still generate.")
+          : e("div", { class: "ai-issue-list" }, issues.map(renderAIReviewIssue));
+        const meta = e("p", { class: "muted ai-review-iter-meta" }, [
+          "Iteration ", String((State.get().ai_review || { iterations: [] }).iterations.length),
+          " · model ", e("code", null, last.model || ""),
+          " · ", String(last.input_tokens | 0), " in / ",
+          String(last.output_tokens | 0), " out tokens",
+          " · ", new Date(last.timestamp).toLocaleString(),
+        ]);
+        body = e("div", null, [readyBanner, summary, issueList, meta]);
+      } else {
+        body = e("p", { class: "muted" }, [
+          "Click ", e("strong", null, "Get AI review"),
+          " to send your answers to Claude. Claude will surface ambiguities, conflicts, duplicates, ",
+          "and missing context that the build is likely to need. Your answers leave the browser only ",
+          "when you click — and only with the API key you configure in AI settings.",
+        ]);
+      }
+
+      return e("section", { class: "card review-ai" }, [
+        headerRow,
+        buttonRow,
+        errorRow,
+        body,
+      ]);
+    }
+
     function render() {
       return e("main", { class: "main review", role: "main", id: "app-main" }, [
         e("p", { class: "kicker" }, "Review · Phase 16 of 16"),
         e("h1", null, "Review & generate"),
         e("p", { class: "muted" }, [
           "This is the dry run. Nothing is shipped to GitHub or to Claude until you click Generate. ",
-          "Below: any open issues, then a per-phase summary, then the actions.",
+          "Below: any open issues, then the AI review, then a per-phase summary, then the actions.",
         ]),
         renderIssuesPanel(),
+        renderAIReviewPanel(),
         renderActionsPanel(),
         renderPhaseSummary(),
       ]);

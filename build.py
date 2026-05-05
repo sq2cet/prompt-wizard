@@ -294,6 +294,14 @@ TEMPLATE_FRAGMENT_INPUTS: dict[str, str] = {
     "JSZIP":        "src/vendor/jszip/jszip.min.js",
 }
 
+# Raw-text files whose contents are JSON-encoded as a single string and
+# slotted into a <script type="application/json"> block. Used for prose
+# blobs (e.g. AI system prompts) where the content is text, not structured
+# data.
+TEMPLATE_RAW_TEXT_INPUTS: dict[str, str] = {
+    "DATA_AI_SYSTEM_PROMPT": "src/data/ai/review-system-prompt.md",
+}
+
 # Vendored libraries that must be SHA-pinned. `build.py` refuses to bundle
 # any vendor file whose computed SHA-256 does not match the pinned value
 # in <vendor-dir>/SHA256SUMS.
@@ -492,6 +500,15 @@ def cmd_build(args: argparse.Namespace) -> int:
             sys.stderr.write(f"ERROR: missing fragment: {rel}\n")
             return 1
         substitutions[token] = path.read_text(encoding="utf-8")
+
+    # Resolve raw-text placeholders (text → JSON-encoded string for inline
+    # <script type="application/json"> embedding).
+    for token, rel in TEMPLATE_RAW_TEXT_INPUTS.items():
+        path = PROJECT_ROOT / rel
+        if not path.is_file():
+            sys.stderr.write(f"ERROR: missing raw-text file: {rel}\n")
+            return 1
+        substitutions[token] = _safe_json_for_inline(path.read_text(encoding="utf-8"))
 
     # Build-info metadata block (also surfaced inline as a JSON script tag).
     data_version = _data_version()

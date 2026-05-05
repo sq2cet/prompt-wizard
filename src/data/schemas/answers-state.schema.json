@@ -47,7 +47,8 @@
         "followups_deferred": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
-    }
+    },
+    "ai_review": { "$ref": "#/$defs/ai_review" }
   },
   "additionalProperties": false,
   "$defs": {
@@ -77,6 +78,77 @@
         "answered_at": { "type": "string", "format": "date-time" },
         "note": { "type": "string" },
         "rationale": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "ai_review": {
+      "type": "object",
+      "description": "AI review iterations (V2.4+). Optional — only present after the user has run at least one Get AI review pass. The API key itself is never serialised here; it lives in browser localStorage only.",
+      "properties": {
+        "iterations": { "type": "array", "items": { "$ref": "#/$defs/ai_iteration" } },
+        "ready_to_generate":  { "type": "boolean" },
+        "stopped_by":         { "type": ["string", "null"], "enum": ["claude_ready", "user_done", "iteration_cap", null] },
+        "total_input_tokens":  { "type": "integer", "minimum": 0 },
+        "total_output_tokens": { "type": "integer", "minimum": 0 },
+        "estimated_cost_usd":  { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "ai_iteration": {
+      "type": "object",
+      "required": ["timestamp", "model", "issues"],
+      "properties": {
+        "timestamp":     { "type": "string", "format": "date-time" },
+        "model":         { "type": "string" },
+        "input_tokens":  { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 },
+        "ready_to_generate": { "type": "boolean" },
+        "summary":       { "type": "string" },
+        "issues": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ai_issue" }
+        },
+        "user_responses": {
+          "type": "object",
+          "description": "Keyed by issue id (e.g. iss-1). Populated by the user via Accept/Change/Reject (V2.5).",
+          "additionalProperties": { "$ref": "#/$defs/ai_user_response" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ai_issue": {
+      "type": "object",
+      "required": ["id", "kind", "phase_id", "comment"],
+      "properties": {
+        "id":          { "type": "string" },
+        "kind":        { "type": "string", "enum": ["ambiguity", "conflict", "duplicate", "misplaced", "redundant", "missing_context"] },
+        "phase_id":    { "type": "string" },
+        "question_id": { "type": "string" },
+        "comment":     { "type": "string" },
+        "suggestion":  { "type": "string" },
+        "severity":    { "type": "string", "enum": ["info", "warning", "conflict"] },
+        "related": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["phase_id"],
+            "properties": {
+              "phase_id":    { "type": "string" },
+              "question_id": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ai_user_response": {
+      "type": "object",
+      "required": ["kind", "at"],
+      "properties": {
+        "kind":          { "type": "string", "enum": ["accept", "change", "reject", "defer_to_claude"] },
+        "applied_value": {},
+        "at":            { "type": "string", "format": "date-time" }
       },
       "additionalProperties": false
     }
