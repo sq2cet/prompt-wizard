@@ -62,6 +62,12 @@
       .slice(0, 60);
   }
   function projectSlug(state) {
+    // V2.1: prefer the explicit project_slug set at "Start a new project".
+    // Fall back to deriving from the Vision pitch only for legacy state that
+    // pre-dates the explicit-name capture.
+    if (state && typeof state.project_slug === "string" && state.project_slug.length > 0) {
+      return state.project_slug;
+    }
     const pitch = (((state.phases.vision || {}).answers || {}).pitch || {}).value || "";
     return _slug(pitch) || "untitled-project";
   }

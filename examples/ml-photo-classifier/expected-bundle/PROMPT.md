@@ -1,4 +1,4 @@
-# classify-a-personal-photo-library-into-rough-buckets-people- — Build Prompt
+# personal-photo-classifier — Build Prompt
 
 ## Overview
 Classify a personal photo library into rough buckets — people, places, things — using a pre-trained vision model.

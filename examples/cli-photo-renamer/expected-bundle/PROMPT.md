@@ -1,4 +1,4 @@
-# rename-jpeg-and-heic-photos-in-a-directory-to-yyyymmdd-hhmm- — Build Prompt
+# exif-photo-renamer — Build Prompt
 
 ## Overview
 Rename JPEG and HEIC photos in a directory to YYYYMMDD-HHMM based on the EXIF capture timestamp.

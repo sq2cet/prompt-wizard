@@ -1,4 +1,4 @@
-# esp32-temperature-sensor-that-posts-readings-to-a-webhook-ev
+# esp32-temp-webhook
 
 This bundle was produced by [prompt-wizard](https://github.com/sq2cet/prompt-wizard) — a single-file HTML wizard that helps non-technical users articulate an application idea and emit a comprehensive build prompt for [Claude Code](https://docs.claude.com/en/docs/claude-code).
 

@@ -1,4 +1,4 @@
-# habit-tracker-for-iphone-with-a-home-screen-widget-showing-t — Build Prompt
+# habit-tracker-mobile — Build Prompt
 
 ## Overview
 Habit tracker for iPhone with a home-screen widget showing today's progress.

@@ -1,4 +1,4 @@
-# classify-a-personal-photo-library-into-rough-buckets-people-
+# personal-photo-classifier
 
 This bundle was produced by [prompt-wizard](https://github.com/sq2cet/prompt-wizard) — a single-file HTML wizard that helps non-technical users articulate an application idea and emit a comprehensive build prompt for [Claude Code](https://docs.claude.com/en/docs/claude-code).
 

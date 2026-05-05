@@ -1,4 +1,4 @@
-# a-single-page-web-app-for-managing-a-personal-list-of-contac
+# contacts-list-vanilla-web
 
 This bundle was produced by [prompt-wizard](https://github.com/sq2cet/prompt-wizard) — a single-file HTML wizard that helps non-technical users articulate an application idea and emit a comprehensive build prompt for [Claude Code](https://docs.claude.com/en/docs/claude-code).
 

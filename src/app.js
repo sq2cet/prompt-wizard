@@ -107,6 +107,15 @@
     let saveTimer = null;
     let saveStatus = "idle"; // "idle" | "pending" | "ok" | "error" | "fallback"
 
+    // V2.1: when an active project file is configured (via ProjectStore in
+    // Chromium), saves go to that file instead of localStorage. localStorage
+    // is the fallback for non-Chromium browsers and for the no-directory state.
+    let activeProjectSlug = null;
+    let pendingFileWrite = null;     // Promise of in-flight write, to serialise.
+
+    function setActiveProject(slug) { activeProjectSlug = slug || null; }
+    function getActiveProject() { return activeProjectSlug; }
+
     function makeFreshState(taxonomy) {
       const phases = {};
       for (const p of (taxonomy && taxonomy.phases) || []) {
@@ -159,22 +168,49 @@
     function get() { return state; }
 
     /**
+     * Persist state. Routes to the active project file (V2.1 file-backed
+     * mode) when available, otherwise to localStorage. Returns a promise
+     * resolving to `{ ok, fallback?, error? }`.
+     */
+    async function _persist() {
+      if (activeProjectSlug && ProjectStore.available()) {
+        try {
+          // Serialise concurrent writes — the writable stream API doesn't
+          // support overlapping writes to the same file.
+          const prev = pendingFileWrite || Promise.resolve();
+          pendingFileWrite = prev.then(function () {
+            return ProjectStore.saveProjectFile(activeProjectSlug, state);
+          });
+          await pendingFileWrite;
+          return { ok: true, fallback: false };
+        } catch (err) {
+          console.error("Project file save failed:", err);
+          // Fall through to localStorage as a last resort.
+          const ls = Storage.save(state);
+          return { ok: true, fallback: true };
+        }
+      }
+      // No active file: write to localStorage as in V1.
+      const result = Storage.save(state);
+      return { ok: result.ok, fallback: !!result.fallback };
+    }
+
+    /**
      * Save and surface a brief "saving" → "ok" pulse so the user sees the
      * activity. Used after commit-style events and after explicit flushes.
      */
     function _saveAndPulse() {
-      const result = Storage.save(state);
-      const finalStatus =
-        !result.ok ? "error" :
-        result.fallback ? "fallback" : "ok";
-      // Render with "saving" first.
       saveStatus = "saving";
       _notify();
-      // Settle on the final status after a short delay so the dot visibly blinks.
-      setTimeout(function () {
-        saveStatus = finalStatus;
-        _notify();
-      }, 250);
+      _persist().then(function (result) {
+        const finalStatus =
+          !result.ok ? "error" :
+          result.fallback ? "fallback" : "ok";
+        setTimeout(function () {
+          saveStatus = finalStatus;
+          _notify();
+        }, 250);
+      });
     }
 
     /**
@@ -182,16 +218,17 @@
      * (e.g. quota exceeded → fallback). Used by debounced text-input saves.
      */
     function _saveQuiet() {
-      const result = Storage.save(state);
-      const newStatus =
-        !result.ok ? "error" :
-        result.fallback ? "fallback" : "ok";
-      if (newStatus !== saveStatus) {
-        saveStatus = newStatus;
-        _notify();
-      } else {
-        saveStatus = newStatus;
-      }
+      _persist().then(function (result) {
+        const newStatus =
+          !result.ok ? "error" :
+          result.fallback ? "fallback" : "ok";
+        if (newStatus !== saveStatus) {
+          saveStatus = newStatus;
+          _notify();
+        } else {
+          saveStatus = newStatus;
+        }
+      });
     }
 
     /**
@@ -277,12 +314,38 @@
       _notify();
     }
 
+    /**
+     * Replace the in-memory state wholesale (used by the Load-from-file flow).
+     * Validates schema fields lightly; the caller is expected to have already
+     * checked structural shape via `_validateImportedState` before calling.
+     * Saves immediately and notifies.
+     */
+    function replace(newState) {
+      const fresh = makeFreshState(Data.questionTaxonomy);
+      // Merge: imported wins for fields it has; fresh fills in missing phase
+      // entries for phases added since the imported file was saved.
+      state = Object.assign({}, fresh, newState, {
+        phases: Object.assign({}, fresh.phases, newState.phases || {}),
+      });
+      for (const id of Object.keys(state.phases)) {
+        state.phases[id] = Object.assign({}, fresh.phases[id] || {}, state.phases[id]);
+      }
+      Storage.save(state);
+      saveStatus = "ok";
+      _notify();
+    }
+
     function getSaveStatus() { return saveStatus; }
 
     function subscribe(fn) { listeners.add(fn); return function () { listeners.delete(fn); }; }
     function _notify() { listeners.forEach(function (fn) { try { fn(state); } catch (e) { console.error(e); } }); }
 
-    return { init, get, commit, deferredCommit, flushPending, flushNow, reset, getSaveStatus, subscribe };
+    return {
+      init, get, commit, deferredCommit, flushPending, flushNow,
+      reset, replace, getSaveStatus, subscribe,
+      // V2.1 file-backed mode helpers:
+      setActiveProject, getActiveProject,
+    };
   })();
 
   // ----- Router --------------------------------------------------------------
@@ -670,6 +733,313 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 500);
   }
 
+  // ----- ProjectStore (V2.1) -------------------------------------------------
+  //
+  // File-based persistence using the File System Access API. The user picks a
+  // directory once; the handle is persisted in IndexedDB so the wizard
+  // remembers it across sessions. New projects are created as <slug>.json
+  // files in that directory, and every state change writes the whole JSON
+  // back to the project's file (debounced for free-text, immediate for
+  // commit-style events).
+  //
+  // In browsers without the File System Access API (Safari / Firefox), the
+  // ProjectStore reports `available: false` and the wizard falls back to
+  // localStorage as in V1.
+
+  const ProjectStore = (function () {
+    const DB_NAME      = "prompt-wizard-store";
+    const DB_VERSION   = 1;
+    const STORE_NAME   = "handles";
+    const KEY_DIR      = "projects-dir";
+
+    function available() {
+      return typeof window !== "undefined" &&
+             typeof window.showDirectoryPicker === "function" &&
+             typeof window.indexedDB !== "undefined";
+    }
+
+    // ---- IndexedDB helpers ----
+
+    function _openDB() {
+      return new Promise(function (resolve, reject) {
+        const req = window.indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = function () {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME);
+          }
+        };
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error); };
+      });
+    }
+
+    async function _idbGet(key) {
+      const db = await _openDB();
+      return new Promise(function (resolve, reject) {
+        const tx = db.transaction(STORE_NAME, "readonly");
+        const req = tx.objectStore(STORE_NAME).get(key);
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error); };
+      });
+    }
+
+    async function _idbPut(key, value) {
+      const db = await _openDB();
+      return new Promise(function (resolve, reject) {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        tx.objectStore(STORE_NAME).put(value, key);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    }
+
+    async function _idbDelete(key) {
+      const db = await _openDB();
+      return new Promise(function (resolve, reject) {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        tx.objectStore(STORE_NAME).delete(key);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    }
+
+    // ---- Directory handle: pick + persist + permission ----
+
+    /**
+     * Returns the stored directory handle, asking permission if necessary.
+     * Returns null if no handle is stored or permission denied.
+     */
+    async function getDirectoryHandle() {
+      if (!available()) return null;
+      const handle = await _idbGet(KEY_DIR);
+      if (!handle) return null;
+      // The browser can require us to re-request permission after a relaunch.
+      const perm = await handle.queryPermission({ mode: "readwrite" });
+      if (perm === "granted") return handle;
+      const requested = await handle.requestPermission({ mode: "readwrite" });
+      if (requested === "granted") return handle;
+      return null;
+    }
+
+    /**
+     * Open the OS directory picker, store the chosen handle in IndexedDB.
+     * Returns the handle on success, null on cancel.
+     */
+    async function pickDirectory() {
+      if (!available()) throw new Error("File System Access API not supported in this browser.");
+      try {
+        const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+        await _idbPut(KEY_DIR, handle);
+        return handle;
+      } catch (err) {
+        if (err && err.name === "AbortError") return null;
+        throw err;
+      }
+    }
+
+    async function forgetDirectory() {
+      await _idbDelete(KEY_DIR);
+    }
+
+    // ---- Project files: list / create / load / save / delete ----
+
+    function _slugFromFilename(name) {
+      // Strip a trailing ".json" (case-insensitive).
+      return name.replace(/\.json$/i, "");
+    }
+
+    /**
+     * Enumerate *.json files in the chosen directory. Returns an array of
+     * { slug, file_name, modified_at, size } sorted by modification time
+     * descending.
+     */
+    async function listProjects() {
+      const dir = await getDirectoryHandle();
+      if (!dir) return [];
+      const out = [];
+      // FileSystemDirectoryHandle is async-iterable in Chromium.
+      for await (const [name, entry] of dir.entries()) {
+        if (entry.kind !== "file") continue;
+        if (!/\.json$/i.test(name)) continue;
+        try {
+          const file = await entry.getFile();
+          out.push({
+            slug: _slugFromFilename(name),
+            file_name: name,
+            modified_at: file.lastModified,
+            size: file.size,
+          });
+        } catch (_) { /* skip */ }
+      }
+      out.sort(function (a, b) { return b.modified_at - a.modified_at; });
+      return out;
+    }
+
+    async function _getFileHandle(slug, opts) {
+      const dir = await getDirectoryHandle();
+      if (!dir) throw new Error("No projects directory selected.");
+      return await dir.getFileHandle(slug + ".json", opts || {});
+    }
+
+    async function createProjectFile(slug, initialState) {
+      const handle = await _getFileHandle(slug, { create: true });
+      await _writeJson(handle, initialState);
+      return handle;
+    }
+
+    async function loadProjectFile(slug) {
+      const handle = await _getFileHandle(slug);
+      const file = await handle.getFile();
+      const text = await file.text();
+      return JSON.parse(text);
+    }
+
+    async function saveProjectFile(slug, state) {
+      const handle = await _getFileHandle(slug);
+      await _writeJson(handle, state);
+    }
+
+    async function deleteProjectFile(slug) {
+      const dir = await getDirectoryHandle();
+      if (!dir) throw new Error("No projects directory selected.");
+      await dir.removeEntry(slug + ".json");
+    }
+
+    async function projectFileExists(slug) {
+      const dir = await getDirectoryHandle();
+      if (!dir) return false;
+      try {
+        await dir.getFileHandle(slug + ".json");
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async function _writeJson(handle, value) {
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify(value, null, 2));
+      await writable.close();
+    }
+
+    return {
+      available,
+      pickDirectory,
+      getDirectoryHandle,
+      forgetDirectory,
+      listProjects,
+      createProjectFile,
+      loadProjectFile,
+      saveProjectFile,
+      deleteProjectFile,
+      projectFileExists,
+    };
+  })();
+
+  // ----- FilePicker (V2.1) ---------------------------------------------------
+  //
+  // Wraps the File System Access API (Chromium 86+) so the user can pick a
+  // location once and the browser will default future picks to the same
+  // place — addressing the "where did the wizard save my file?" problem in
+  // V1. Falls back to the classic download anchor / <input type="file">
+  // approach in Safari and Firefox.
+
+  const FilePicker = (function () {
+    function hasSaveAPI() {
+      return typeof window !== "undefined" && typeof window.showSaveFilePicker === "function";
+    }
+    function hasOpenAPI() {
+      return typeof window !== "undefined" && typeof window.showOpenFilePicker === "function";
+    }
+
+    /**
+     * Save `blob` as `filename`, asking the user where via the OS's native
+     * Save dialog when supported. Returns a promise resolving to an object
+     * with `{ ok, name?, cancelled?, fallback? }`.
+     */
+    async function pickToSave(filename, blob, mimeType) {
+      if (hasSaveAPI()) {
+        try {
+          const opts = { suggestedName: filename };
+          if (mimeType === "application/zip") {
+            opts.types = [{ description: "ZIP archive", accept: { "application/zip": [".zip"] } }];
+          } else if (mimeType === "application/json") {
+            opts.types = [{ description: "JSON file", accept: { "application/json": [".json"] } }];
+          }
+          const handle = await window.showSaveFilePicker(opts);
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return { ok: true, name: handle.name };
+        } catch (err) {
+          if (err && err.name === "AbortError") return { ok: false, cancelled: true };
+          console.warn("showSaveFilePicker failed; falling back to download anchor:", err);
+        }
+      }
+      // Fallback: classic download anchor — saves to the browser's Downloads
+      // folder. The user has no choice of location.
+      downloadBlob(filename, blob);
+      return { ok: true, name: filename, fallback: true };
+    }
+
+    /**
+     * Open a file picker. When available, the browser remembers the last
+     * location and defaults subsequent picks there. Returns a promise
+     * resolving to `{ ok, text?, name?, cancelled?, error? }`.
+     */
+    async function pickToOpen(accept) {
+      const acceptObj = accept || { "application/json": [".json"] };
+      if (hasOpenAPI()) {
+        try {
+          const handles = await window.showOpenFilePicker({
+            types: [{ description: "Saved project", accept: acceptObj }],
+            multiple: false,
+            excludeAcceptAllOption: false,
+          });
+          const file = await handles[0].getFile();
+          const text = await file.text();
+          return { ok: true, text: text, name: file.name };
+        } catch (err) {
+          if (err && err.name === "AbortError") return { ok: false, cancelled: true };
+          console.warn("showOpenFilePicker failed; falling back to <input type=file>:", err);
+        }
+      }
+      // Fallback: classic <input type="file">.
+      return new Promise(function (resolve) {
+        const input = document.createElement("input");
+        input.type = "file";
+        const exts = [];
+        for (const mime in acceptObj) {
+          for (const ext of acceptObj[mime]) exts.push(ext);
+        }
+        input.accept = exts.concat(Object.keys(acceptObj)).join(",");
+        input.style.display = "none";
+        input.onchange = function () {
+          const file = input.files && input.files[0];
+          if (!file) {
+            if (input.parentNode) input.parentNode.removeChild(input);
+            resolve({ ok: false, cancelled: true });
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = function () {
+            resolve({ ok: true, text: reader.result, name: file.name });
+          };
+          reader.onerror = function () {
+            resolve({ ok: false, error: "read_failed" });
+          };
+          reader.readAsText(file);
+          setTimeout(function () { if (input.parentNode) input.parentNode.removeChild(input); }, 1000);
+        };
+        document.body.appendChild(input);
+        input.click();
+      });
+    }
+
+    return { pickToSave, pickToOpen, hasSaveAPI, hasOpenAPI };
+  })();
+
   // ----- PreflightScreen -----------------------------------------------------
 
   const PreflightScreen = (function () {
@@ -792,15 +1162,41 @@
       return e("span", { class: cls, "aria-label": title, title: title });
     }
 
+    function _headerActions() {
+      return (typeof window !== "undefined" && window.PromptWizard && window.PromptWizard.headerActions) || {};
+    }
+
     function render() {
+      const actions = _headerActions();
+      const slug = (State.get() || {}).project_slug || "";
       return e("header", { class: "appbar", role: "banner" }, [
         e("div", { class: "appbar-title" }, [
           e("strong", null, "Prompt Wizard"),
-          e("span", { class: "muted" }, " for Claude Code"),
+          slug ? e("span", { class: "muted" }, " · " + slug) : e("span", { class: "muted" }, " for Claude Code"),
         ]),
-        e("div", { class: "appbar-status" }, [
-          statusDot(),
-          e("span", { class: "save-label muted" }, _saveLabel()),
+        e("div", { class: "appbar-actions" }, [
+          actions.newProject
+            ? e("button", {
+                type: "button",
+                class: "appbar-btn",
+                onclick: actions.newProject,
+                "aria-label": "Start a new project",
+                title: "Start a new project (with confirmation)",
+              }, "↺ New project")
+            : null,
+          actions.openSettings
+            ? e("button", {
+                type: "button",
+                class: "appbar-btn appbar-gear",
+                onclick: actions.openSettings,
+                "aria-label": "Settings",
+                title: "Settings",
+              }, "⚙")
+            : null,
+          e("div", { class: "appbar-status" }, [
+            statusDot(),
+            e("span", { class: "save-label muted" }, _saveLabel()),
+          ]),
         ]),
       ]);
     }
@@ -956,6 +1352,22 @@
         } else {
           a.state = newState;
         }
+      });
+    }
+
+    /**
+     * V2.1: Clear an answer. Returns the question to "blank" state with no
+     * stored value. The user gets a way to "un-tick" a radio without changing
+     * native HTML radio semantics — fixes the user-reported "checkmark
+     * forever" issue.
+     */
+    function clearAnswer(phaseId, q) {
+      State.commit(function (s) {
+        const a = ensureAnswerEntry(s, phaseId, q.id);
+        a.value = null;
+        a.state = "blank";
+        // Notes / rationale survive a Clear — they may still be useful next
+        // time the user revisits the question.
       });
     }
 
@@ -1148,7 +1560,7 @@
       const required = q.required === true;
       const guidanceId = q.guidance ? ("guidance-" + phaseId + "-" + q.id) : null;
 
-      // Per-question state buttons: Answered (default) / Defer / Skip
+      // Per-question state buttons: Answered (default) / Defer / Skip / Clear
       function stateBtn(label, target, extraLabel) {
         return e("button", {
           type: "button",
@@ -1158,6 +1570,20 @@
           "aria-pressed": a.state === target ? "true" : "false",
         }, label);
       }
+
+      // Clear is shown only when there IS something to clear.
+      const hasValueOrPicked =
+        (a.state === "answered") ||
+        (a.value != null && !(Array.isArray(a.value) && a.value.length === 0) && a.value !== "");
+      const clearBtn = hasValueOrPicked
+        ? e("button", {
+            type: "button",
+            class: "q-state-btn q-state-btn-clear",
+            onclick: function () { clearAnswer(phaseId, q); },
+            "aria-label": "Clear answer — " + q.text,
+            title: "Clear this answer (returns to blank)",
+          }, "Clear")
+        : null;
 
       let body;
       if (a.state === "deferred") {
@@ -1231,6 +1657,7 @@
             stateBtn("Answer", "answered"),
             stateBtn("Defer",  "deferred"),
             stateBtn("Skip",   "skipped"),
+            clearBtn,
           ]),
         ]),
         guidance,
@@ -1542,44 +1969,53 @@
 
     function renderActionsPanel() {
       const slug = Generator.projectSlug(State.get());
+      const dataBundle = Data; // Generator's call site builds its own dataBundle from Data.
 
-      function downloadAnswers() {
-        downloadString(slug + "-answers.json", JSON.stringify(State.get(), null, 2), "application/json");
+      async function downloadAnswers() {
+        const json = JSON.stringify(State.get(), null, 2);
+        const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+        const result = await FilePicker.pickToSave(slug + "-answers.json", blob, "application/json");
+        if (result.cancelled) return;
+        if (result.ok && !result.fallback) {
+          // The user picked a location; the browser will remember it for next time.
+          // No further toast needed; the OS dialog already confirmed the save.
+        }
       }
       function openPreview() { Router.go("preview"); }
 
-      function generateBundle(ev) {
+      async function generateBundle(ev) {
         const btn = ev && ev.currentTarget;
         const original = btn ? btn.textContent : null;
         if (btn) { btn.disabled = true; btn.textContent = "Packing…"; }
         try {
           if (!Bundler.isAvailable()) {
-            alert(
+            window.alert(
               "JSZip is not available in this build, so the ZIP cannot be packed.\n" +
               "answers.json will be downloaded instead."
             );
-            downloadAnswers();
+            await downloadAnswers();
             return;
           }
           const files = Generator.generateAll(State.get(), Data.questionTaxonomy);
-          Bundler.pack(slug, files).then(function (blob) {
-            downloadBlob(slug + "-prompt.zip", blob);
-          }).catch(function (err) {
-            console.error("ZIP packing failed", err);
-            alert(
-              "Could not pack the ZIP: " + (err && err.message ? err.message : err) + "\n" +
-              "Falling back to answers.json download."
-            );
-            downloadAnswers();
-          }).then(function () {
-            if (btn) { btn.disabled = false; btn.textContent = original; }
-          });
+          const blob = await Bundler.pack(slug, files);
+          const result = await FilePicker.pickToSave(slug + "-prompt.zip", blob, "application/zip");
+          if (result.cancelled) {
+            // User cancelled the OS save dialog; do nothing.
+          } else if (!result.ok) {
+            window.alert("Could not save the ZIP: " + (result.error || "unknown error"));
+          }
         } catch (err) {
-          console.error(err);
+          console.error("ZIP packing failed", err);
+          window.alert("Generate failed: " + (err && err.message ? err.message : err));
+        } finally {
           if (btn) { btn.disabled = false; btn.textContent = original; }
-          alert("Generate failed: " + (err && err.message ? err.message : err));
         }
       }
+
+      // V2.1: hint adjusts based on whether we have the File System Access API.
+      const filePickerHint = FilePicker.hasSaveAPI()
+        ? "When you click Generate, your operating system will ask where to save the ZIP. Pick once; the browser remembers the location for future saves and for Load."
+        : "The ZIP downloads to your browser's default download folder (typically ~/Downloads on macOS, the Downloads folder on Windows / Linux). Use the same folder when you Load a saved project.";
 
       return e("div", { class: "card review-actions" }, [
         e("h2", null, "Generate"),
@@ -1587,8 +2023,9 @@
           "Run a Preview to see exactly what Claude Code will receive. ",
           "When you are happy, click Generate — a ZIP named ",
           e("code", null, slug + "-prompt.zip"),
-          " downloads to your Downloads folder.",
+          " is saved.",
         ]),
+        e("p", { class: "muted q-hint" }, filePickerHint),
         e("div", { class: "review-actions-row" }, [
           e("button", { type: "button", class: "primary", onclick: openPreview }, "Preview prompt"),
           e("button", { type: "button", onclick: generateBundle }, "Generate bundle"),
@@ -1698,6 +2135,309 @@
     return { render };
   })();
 
+  // ----- StartupScreen (V2.1) ------------------------------------------------
+  //
+  // Three states:
+  //
+  //   (1) File System Access API not supported. Show legacy choice screen
+  //       with Continue / Start a new project / Load from file (one-off pick).
+  //
+  //   (2) API supported but no projects directory configured yet. Show a
+  //       "Choose where your projects will be saved" prompt with one button.
+  //
+  //   (3) API supported AND directory configured. List all *.json projects
+  //       in that directory with Load / Delete buttons each, plus a
+  //       "+ New project" button and a "Change folder" link.
+
+  const StartupScreen = (function () {
+    function hasMeaningfulLocalState() {
+      const s = State.get();
+      if (!s) return false;
+      if (s.project_slug) return true;
+      const phases = s.phases || {};
+      for (const id in phases) {
+        const phase = phases[id];
+        if (!phase) continue;
+        if (phase.phase_comment) return true;
+        const answers = phase.answers || {};
+        for (const qid in answers) {
+          const a = answers[qid];
+          if (a && a.state && a.state !== "blank") return true;
+        }
+      }
+      return false;
+    }
+
+    function _humanSize(bytes) {
+      if (bytes < 1024) return bytes + " B";
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+      return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    function _humanWhen(ts) {
+      const d = new Date(ts);
+      const now = new Date();
+      const sameDay = d.toDateString() === now.toDateString();
+      if (sameDay) return d.toTimeString().slice(0, 5);
+      return d.toISOString().slice(0, 10);
+    }
+
+    // --- Legacy startup (no File System Access API) ----------------------------
+    function _renderLegacy(host, onChoice) {
+      const showContinue = hasMeaningfulLocalState();
+      const slug = (State.get() || {}).project_slug || "";
+      Renderer.clear(host);
+      const buttons = [];
+      if (showContinue) {
+        buttons.push(e("button", {
+          type: "button",
+          class: "primary startup-btn",
+          onclick: function () { onChoice("continue"); },
+        }, [
+          e("strong", null, "▸ Continue with my saved project"),
+          slug ? e("span", { class: "muted startup-btn-aside" }, " — " + slug) : null,
+        ]));
+      }
+      buttons.push(e("button", {
+        type: "button",
+        class: (showContinue ? "" : "primary ") + "startup-btn",
+        onclick: function () { onChoice("new"); },
+      }, [e("strong", null, "▸ Start a new project")]));
+      buttons.push(e("button", {
+        type: "button",
+        class: "startup-btn",
+        onclick: function () { onChoice("load"); },
+      }, [e("strong", null, "▸ Load a saved project from file")]));
+
+      host.appendChild(e("main", { class: "screen startup", id: "app-main" }, [
+        e("div", { class: "banner" }, [
+          e("strong", null, "Browser-storage mode. "),
+          "This browser does not support saving directly to the filesystem. ",
+          "Your work is kept in this browser's localStorage; export answers.json regularly to avoid loss. ",
+          "Chrome / Edge unlock automatic file-based saves with a list of all your projects.",
+        ]),
+        e("p", { class: "kicker" }, "Welcome"),
+        e("h1", null, "Prompt Wizard for Claude Code"),
+        e("div", { class: "startup-actions" }, buttons),
+        _versionFooter(),
+      ]));
+    }
+
+    // --- Pick-directory first-run --------------------------------------------
+    function _renderPickDir(host, onPick) {
+      Renderer.clear(host);
+      host.appendChild(e("main", { class: "screen startup", id: "app-main" }, [
+        e("p", { class: "kicker" }, "Welcome"),
+        e("h1", null, "Choose where your projects live"),
+        e("p", { class: "muted" },
+          "The wizard saves each project as a JSON file in a folder you choose. " +
+          "Pick one now — the next time you open the wizard, it will open in this folder and " +
+          "list your saved projects."),
+        e("div", { class: "startup-actions" }, [
+          e("button", {
+            type: "button",
+            class: "primary startup-btn",
+            onclick: function () { onPick(); },
+          }, [e("strong", null, "▸ Choose folder")]),
+        ]),
+        _versionFooter(),
+      ]));
+    }
+
+    // --- Project list (file-backed mode) -------------------------------------
+    function _renderProjectList(host, projects, handlers) {
+      Renderer.clear(host);
+      const items = projects.length === 0
+        ? [e("li", { class: "muted project-list-empty" }, "No projects yet. Create one below.")]
+        : projects.map(function (p) {
+            return e("li", { class: "project-row" }, [
+              e("div", { class: "project-row-info" }, [
+                e("strong", null, p.slug),
+                e("span", { class: "muted project-row-meta" },
+                  " · " + _humanWhen(p.modified_at) + " · " + _humanSize(p.size)),
+              ]),
+              e("div", { class: "project-row-actions" }, [
+                e("button", {
+                  type: "button",
+                  class: "primary",
+                  onclick: function () { handlers.onLoad(p.slug); },
+                }, "Load"),
+                e("button", {
+                  type: "button",
+                  class: "danger-btn",
+                  onclick: function () { handlers.onDelete(p.slug); },
+                  "aria-label": "Delete " + p.slug,
+                }, "Delete"),
+              ]),
+            ]);
+          });
+
+      host.appendChild(e("main", { class: "screen startup", id: "app-main" }, [
+        e("p", { class: "kicker" }, "Welcome"),
+        e("h1", null, "Your projects"),
+        e("p", { class: "muted" }, [
+          "Saved as JSON files in your chosen folder. ",
+          e("button", {
+            type: "button",
+            class: "link",
+            onclick: handlers.onChangeFolder,
+          }, "Change folder"),
+        ]),
+        e("ul", { class: "project-list" }, items),
+        e("div", { class: "startup-actions" }, [
+          e("button", {
+            type: "button",
+            class: "primary startup-btn",
+            onclick: handlers.onNew,
+          }, [e("strong", null, "+ New project")]),
+        ]),
+        _versionFooter(),
+      ]));
+    }
+
+    function _versionFooter() {
+      return e("p", { class: "muted footer" }, [
+        "prompt-wizard ",
+        String((Data.buildInfo || {}).wizard_version || "dev"),
+        (Data.buildInfo && Data.buildInfo.commit_sha) ? " · " + Data.buildInfo.commit_sha : "",
+      ]);
+    }
+
+    // --- Mount: dispatch to the right state ----------------------------------
+    async function mount(host, handlers) {
+      // Legacy mode: API not supported.
+      if (!ProjectStore.available()) {
+        _renderLegacy(host, handlers.onLegacyChoice);
+        return;
+      }
+      // Try to get the directory; if none, prompt the user.
+      const dir = await ProjectStore.getDirectoryHandle();
+      if (!dir) {
+        _renderPickDir(host, async function () {
+          try {
+            const picked = await ProjectStore.pickDirectory();
+            if (picked) await mount(host, handlers); // re-mount in list mode
+          } catch (err) {
+            window.alert("Could not access that folder: " + (err && err.message ? err.message : err));
+          }
+        });
+        return;
+      }
+      // List mode.
+      try {
+        const projects = await ProjectStore.listProjects();
+        _renderProjectList(host, projects, {
+          onLoad: handlers.onLoadFromList,
+          onDelete: async function (slug) {
+            if (!window.confirm("Delete project '" + slug + "'? This deletes the JSON file from your folder; it cannot be undone.")) return;
+            try {
+              await ProjectStore.deleteProjectFile(slug);
+              await mount(host, handlers); // re-render the list
+            } catch (err) {
+              window.alert("Could not delete that project: " + (err && err.message ? err.message : err));
+            }
+          },
+          onNew: handlers.onNewInDir,
+          onChangeFolder: async function () {
+            if (!window.confirm("Change to a different folder? Your existing projects will stay where they are; the wizard will simply look in the new folder from now on.")) return;
+            try {
+              const picked = await ProjectStore.pickDirectory();
+              if (picked) await mount(host, handlers);
+            } catch (err) {
+              window.alert("Could not change folder: " + (err && err.message ? err.message : err));
+            }
+          },
+        });
+      } catch (err) {
+        console.error("Could not list projects:", err);
+        window.alert("Could not read the projects folder: " + (err && err.message ? err.message : err));
+      }
+    }
+
+    return { mount, hasMeaningfulLocalState };
+  })();
+
+  // ----- ProjectNameDialog ---------------------------------------------------
+
+  const ProjectNameDialog = (function () {
+    const PATTERN = /^[a-z][a-z0-9-]{2,59}$/;
+
+    function isValid(name) { return PATTERN.test(name); }
+
+    function suggestFromString(s) {
+      return String(s || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60);
+    }
+
+    function mount(host, opts) {
+      let value = opts.initial || "";
+
+      function rerender() {
+        Renderer.clear(host);
+        const valid = isValid(value);
+        const error = !valid && value.length > 0
+          ? "Name must be 3–60 lowercase letters/digits/hyphens, starting with a letter."
+          : null;
+
+        host.appendChild(e("main", { class: "screen project-name", id: "app-main" }, [
+          e("p", { class: "kicker" }, "Step 1 of 2"),
+          e("h1", null, opts.title || "Name your project"),
+          e("p", { class: "muted" },
+            "Used as the ZIP directory name and shown throughout the app. " +
+            "Lowercase letters, digits, and hyphens; 3–60 characters; must start with a letter."),
+          e("p", null, [
+            e("input", {
+              type: "text",
+              class: "q-input",
+              placeholder: "my-cool-project",
+              value: value,
+              autofocus: true,
+              "aria-label": "Project name",
+              "aria-invalid": (!valid && value.length > 0) ? "true" : "false",
+              oninput: function (ev) {
+                value = ev.currentTarget.value;
+                // Re-render if the validity state flips, so the error / button enables.
+                rerender();
+                // Refocus the input and restore caret position.
+                const input = host.querySelector('input[type="text"]');
+                if (input) {
+                  input.focus();
+                  const len = input.value.length;
+                  try { input.setSelectionRange(len, len); } catch (_) {}
+                }
+              },
+              onkeydown: function (ev) {
+                if (ev.key === "Enter" && valid) { onCreate(); }
+              },
+            }),
+          ]),
+          error ? e("p", { class: "danger" }, error) : null,
+          e("div", { class: "project-name-actions" }, [
+            e("button", { type: "button", onclick: opts.onCancel }, "Cancel"),
+            e("button", {
+              type: "button",
+              class: "primary",
+              disabled: !valid,
+              onclick: onCreate,
+            }, "Create project"),
+          ]),
+        ]));
+      }
+
+      function onCreate() {
+        if (!isValid(value)) return;
+        opts.onCreate(value);
+      }
+
+      rerender();
+    }
+
+    return { mount, isValid, suggestFromString };
+  })();
+
   // ----- WizardApp -----------------------------------------------------------
 
   const WizardApp = (function () {
@@ -1778,17 +2518,169 @@
     if (host) WizardApp.mount(host);
   }
 
+  function _routeToWizardOrPreflight(host) {
+    if (State.get().preflight && State.get().preflight.claude_code_attested) {
+      WizardApp.mount(host);
+    } else {
+      PreflightScreen.mount(host, attestAndEnter);
+    }
+  }
+
+  function _showStartup() {
+    const host = document.getElementById("app");
+    if (!host) return;
+    StartupScreen.mount(host, {
+      // Legacy (no FileSystem API) handlers
+      onLegacyChoice: _onLegacyStartupChoice,
+      // File-backed handlers
+      onLoadFromList: _loadFromProjectList,
+      onNewInDir: _newProjectInDirFlow,
+    });
+  }
+
+  // ---- Legacy (localStorage-backed) startup -------------------------------
+
+  function _onLegacyStartupChoice(choice) {
+    const host = document.getElementById("app");
+    if (!host) return;
+    if (choice === "continue") {
+      _routeToWizardOrPreflight(host);
+    } else if (choice === "new") {
+      if (StartupScreen.hasMeaningfulLocalState()) {
+        if (!window.confirm("Discard the current project and start a new one? This cannot be undone.")) {
+          return;
+        }
+      }
+      _askProjectNameAndStart();
+    } else if (choice === "load") {
+      _triggerFilePicker();
+    }
+  }
+
+  function _askProjectNameAndStart() {
+    const host = document.getElementById("app");
+    ProjectNameDialog.mount(host, {
+      title: "Name your new project",
+      initial: "",
+      onCreate: function (slug) {
+        State.reset();
+        State.commit(function (s) { s.project_slug = slug; });
+        _routeToWizardOrPreflight(host);
+      },
+      onCancel: function () { _showStartup(); },
+    });
+  }
+
+  // ---- File-backed (Chromium) startup -------------------------------------
+
+  async function _loadFromProjectList(slug) {
+    const host = document.getElementById("app");
+    try {
+      const data = await ProjectStore.loadProjectFile(slug);
+      if (!_validateImportedState(data)) {
+        window.alert("Project file '" + slug + ".json' is not a recognised wizard project.");
+        return;
+      }
+      State.replace(data);
+      State.setActiveProject(slug);
+      _routeToWizardOrPreflight(host);
+    } catch (err) {
+      console.error(err);
+      window.alert("Could not open that project: " + (err && err.message ? err.message : err));
+    }
+  }
+
+  async function _newProjectInDirFlow() {
+    const host = document.getElementById("app");
+    ProjectNameDialog.mount(host, {
+      title: "Name your new project",
+      initial: "",
+      onCreate: async function (slug) {
+        try {
+          // Refuse to overwrite an existing project with the same name.
+          if (await ProjectStore.projectFileExists(slug)) {
+            window.alert("A project named '" + slug + "' already exists in this folder. Choose a different name.");
+            return;
+          }
+          State.reset();
+          State.commit(function (s) { s.project_slug = slug; });
+          // Create the file immediately, even though it's empty — that's the
+          // user's explicit V2.1 directive: "must be created even empty and
+          // gradually fill up when user go through the forms".
+          await ProjectStore.createProjectFile(slug, State.get());
+          State.setActiveProject(slug);
+          _routeToWizardOrPreflight(host);
+        } catch (err) {
+          console.error(err);
+          window.alert("Could not create the project file: " + (err && err.message ? err.message : err));
+        }
+      },
+      onCancel: function () { _showStartup(); },
+    });
+  }
+
+  function _validateImportedState(data) {
+    return data
+      && typeof data === "object"
+      && typeof data.answers_schema_version === "string"
+      && data.phases && typeof data.phases === "object";
+  }
+
+  async function _triggerFilePicker() {
+    const result = await FilePicker.pickToOpen({ "application/json": [".json"] });
+    if (!result.ok) {
+      // User cancelled or read failed silently. Stay on startup screen.
+      return;
+    }
+    try {
+      const data = JSON.parse(result.text);
+      if (!_validateImportedState(data)) {
+        window.alert("This file does not look like a saved prompt-wizard project (answers.json).");
+        return;
+      }
+      State.replace(data);
+      const host = document.getElementById("app");
+      _routeToWizardOrPreflight(host);
+    } catch (e) {
+      window.alert("Could not parse this file as JSON: " + (e && e.message ? e.message : e));
+    }
+  }
+
+  // Header gear / new-project button helpers (used by HeaderBar).
+  function _onHeaderNewProject() {
+    // In file-backed mode, return to the startup screen so the user can pick
+    // an existing project from the list OR create a new one in their folder.
+    // In legacy mode, fall through to the local-state confirm + name dialog.
+    if (ProjectStore.available()) {
+      _showStartup();
+      return;
+    }
+    if (StartupScreen.hasMeaningfulLocalState()) {
+      if (!window.confirm("Discard the current project and start a new one? This cannot be undone.")) return;
+    }
+    _askProjectNameAndStart();
+  }
+  function _onHeaderSettings() {
+    // V2.1 stub. V2.3 mounts the AISettings modal here.
+    window.alert("Settings — coming in V2.3 (AI configuration: API key, model, cost meter).");
+  }
+  // Expose them so HeaderBar (defined earlier in this IIFE) can wire its buttons.
+  // HeaderBar.render() reads window.PromptWizard.headerActions.
+  if (typeof window !== "undefined") {
+    window.PromptWizard = window.PromptWizard || {};
+    window.PromptWizard.headerActions = {
+      newProject: _onHeaderNewProject,
+      openSettings: _onHeaderSettings,
+    };
+  }
+
   function boot() {
     const host = document.getElementById("app");
     if (!host) return;
     State.init();
 
     host.hidden = false;
-    if (State.get().preflight && State.get().preflight.claude_code_attested) {
-      WizardApp.mount(host);
-    } else {
-      PreflightScreen.mount(host, attestAndEnter);
-    }
+    _showStartup();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

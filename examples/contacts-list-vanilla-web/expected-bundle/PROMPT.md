@@ -1,4 +1,4 @@
-# a-single-page-web-app-for-managing-a-personal-list-of-contac — Build Prompt
+# contacts-list-vanilla-web — Build Prompt
 
 ## Overview
 A single-page web app for managing a personal list of contacts.

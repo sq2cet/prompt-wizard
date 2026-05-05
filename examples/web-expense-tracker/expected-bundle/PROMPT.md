@@ -1,4 +1,4 @@
-# a-personal-expense-tracker-with-categories-and-monthly-summa — Build Prompt
+# personal-expense-tracker — Build Prompt
 
 ## Overview
 A personal expense tracker with categories and monthly summaries.

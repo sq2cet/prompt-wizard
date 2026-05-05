@@ -1,4 +1,4 @@
-# esp32-temperature-sensor-that-posts-readings-to-a-webhook-ev — Build Prompt
+# esp32-temp-webhook — Build Prompt
 
 ## Overview
 ESP32 temperature sensor that POSTs readings to a webhook every 5 minutes.
