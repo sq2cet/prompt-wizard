@@ -769,12 +769,86 @@ button.link:hover { text-decoration: none; }
   border-radius: var(--radius);
 }
 .ai-issue p { margin: 6px 0 0; }
-.ai-issue-head { margin-bottom: 4px; }
+.ai-issue-head {
+  margin-bottom: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: baseline;
+}
 .ai-issue-warning  { border-left-color: var(--warn); }
 .ai-issue-conflict { border-left-color: var(--danger); }
 .ai-issue-misplaced { border-left-color: var(--accent); }
 .ai-issue-suggestion { font-size: 0.95rem; }
 .ai-issue-related { font-size: 0.85rem; }
+.ai-issue.is-resolved { opacity: 0.7; }
+.ai-issue-status {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.ai-issue-status-pending {
+  background: var(--warn-bg, var(--bg));
+  border-color: var(--warn);
+}
+.ai-review-progress { margin: 4px 0 8px; }
+
+/* V2.5: per-question Clarification overlay (banner inside .q-card) */
+.ai-overlay-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.ai-overlay {
+  border-left: 4px solid var(--border-strong);
+  background: var(--bg);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+}
+.ai-overlay p { margin: 6px 0 0; }
+.ai-overlay-head { margin-bottom: 4px; }
+.ai-overlay-warning  { border-left-color: var(--warn); }
+.ai-overlay-conflict { border-left-color: var(--danger); }
+.ai-overlay-misplaced { border-left-color: var(--accent); }
+.ai-overlay-comment    { font-size: 0.95rem; }
+.ai-overlay-suggestion { font-size: 0.95rem; }
+.ai-overlay-related    { font-size: 0.85rem; }
+.ai-overlay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.ai-overlay-actions button { margin: 0; }
+.ai-overlay-editor {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ai-overlay-textarea { width: 100%; }
+.ai-overlay.is-resolved {
+  opacity: 0.85;
+  background: var(--bg-card);
+}
+.ai-overlay-resolved-summary {
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+.ai-overlay-applied {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--border);
+  background: var(--bg-card);
+  font-size: 0.92rem;
+  white-space: pre-wrap;
+}
 
 .review-phases h2 { margin-top: 32px; }
 

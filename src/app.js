@@ -2174,6 +2174,11 @@
         }),
       ]);
 
+      // V2.5: per-question AI review banners. Returns null when no issues
+      // target this question, or a stack of banners (one per pending /
+      // resolved issue).
+      const aiOverlay = ClarificationOverlay.renderBannerFor(phaseId, q.id);
+
       return e("section", { class: "q-card", "data-state": a.state }, [
         e("div", { class: "q-head" }, [
           e("h3", { class: "q-text" }, [
@@ -2187,6 +2192,7 @@
             clearBtn,
           ]),
         ]),
+        aiOverlay,
         guidance,
         body,
         rationale,
@@ -2195,6 +2201,320 @@
     }
 
     return { render };
+  })();
+
+  // ----- ClarificationOverlay (V2.5) ----------------------------------------
+  //
+  // Per-question banners for AI review issues. Reads the latest iteration on
+  // state.ai_review and emits a banner for every issue whose phase_id (and
+  // optional question_id) matches the render context. Each banner offers
+  // Accept · Change · Reject — plus "I don't know — Claude, you choose" for
+  // ambiguity / missing_context. The user's choice is persisted into
+  // iteration.user_responses[issueId] so V2.6's loop / V2.7's bundle know
+  // exactly what was accepted, changed, rejected, or deferred.
+  //
+  // Once an issue has a response, the banner switches to a resolved state
+  // (✓ accepted / ✓ changed / ✕ rejected / 🛈 deferred) with an Undo link
+  // so the user can revisit. The flat list on the Review screen filters
+  // resolved issues out of its primary count but still shows them dimmed.
+
+  const ClarificationOverlay = (function () {
+    // Session-only — which issue is the user actively editing in Change mode
+    // and what is the in-flight draft? Reset on every reload.
+    let editingId = null;
+    let editingDraft = "";
+
+    function _latest() {
+      const ai = State.get().ai_review;
+      const iters = (ai && ai.iterations) || [];
+      return iters.length > 0 ? iters[iters.length - 1] : null;
+    }
+
+    function issuesFor(phaseId, questionId) {
+      const last = _latest();
+      if (!last) return [];
+      const want = (questionId == null) ? null : String(questionId);
+      return (last.issues || []).filter(function (iss) {
+        if (iss.phase_id !== phaseId) return false;
+        const got = (iss.question_id == null) ? null : String(iss.question_id);
+        return got === want;
+      });
+    }
+
+    function responseFor(issueId) {
+      const last = _latest();
+      if (!last) return null;
+      return (last.user_responses && last.user_responses[issueId]) || null;
+    }
+
+    function _writeResponse(issueId, payload) {
+      State.commit(function (s) {
+        if (!s.ai_review || !s.ai_review.iterations.length) return;
+        const last = s.ai_review.iterations[s.ai_review.iterations.length - 1];
+        if (!last.user_responses) last.user_responses = {};
+        last.user_responses[issueId] = Object.assign({ at: new Date().toISOString() }, payload);
+      });
+    }
+
+    function _clearResponse(issueId) {
+      State.commit(function (s) {
+        if (!s.ai_review || !s.ai_review.iterations.length) return;
+        const last = s.ai_review.iterations[s.ai_review.iterations.length - 1];
+        if (last.user_responses) delete last.user_responses[issueId];
+      });
+    }
+
+    /**
+     * Apply a free-text suggestion to a target question's answer when the
+     * input shape allows it. Text / longtext are written directly; everything
+     * else (selects / boolean / number / list) gets the suggestion stashed in
+     * the rationale field so it isn't lost. Returns true if anything was
+     * written into state.
+     */
+    function _applyToTargetQuestion(phaseId, questionId, value) {
+      if (!value || !questionId) return false;
+      const taxonomy = Data.questionTaxonomy;
+      const phases = (taxonomy && taxonomy.phases) || [];
+      const phase = phases.find(function (p) { return p.id === phaseId; });
+      if (!phase) return false;
+      const q = (phase.questions || []).find(function (qq) { return qq.id === questionId; });
+      if (!q) return false;
+      State.commit(function (s) {
+        const ph = s.phases[phaseId];
+        if (!ph) return;
+        if (!ph.answers[questionId]) ph.answers[questionId] = { state: "blank", value: null, note: "" };
+        const a = ph.answers[questionId];
+        if (q.kind === "text" || q.kind === "longtext") {
+          a.value = value;
+          a.state = "answered";
+          a.answered_at = new Date().toISOString();
+        } else {
+          // Cannot reliably parse a free-text suggestion into a structured
+          // value, so stash it in rationale (preserves intent without
+          // overwriting the user's existing pick).
+          a.rationale = value;
+        }
+      });
+      return true;
+    }
+
+    // Issue kinds whose suggestion is *intent* ("drop the copy under
+    // data_input", "move this content to Phase 6"), not a literal value to
+    // write into a single question. For these, Accept records the response
+    // only — V2.7's `notes/ai-review.md` carries the intent into the bundle
+    // so the build session enacts the side effect coherently.
+    const INTENT_ONLY_KINDS = ["duplicate", "redundant", "misplaced"];
+
+    function _onAccept(iss) {
+      const applied = iss.suggestion || "";
+      if (INTENT_ONLY_KINDS.indexOf(iss.kind) < 0) {
+        _applyToTargetQuestion(iss.phase_id, iss.question_id, applied);
+      }
+      _writeResponse(iss.id, { kind: "accept", applied_value: applied });
+    }
+
+    function _onReject(iss) {
+      _writeResponse(iss.id, { kind: "reject" });
+    }
+
+    function _onDeferToClaude(iss) {
+      _writeResponse(iss.id, { kind: "defer_to_claude" });
+    }
+
+    function _onStartChange(iss) {
+      editingId = iss.id;
+      editingDraft = iss.suggestion || "";
+      WizardApp.rerender();
+    }
+
+    function _onCancelChange() {
+      editingId = null;
+      editingDraft = "";
+      WizardApp.rerender();
+    }
+
+    function _onSaveChange(iss) {
+      const value = editingDraft;
+      // Same intent-vs-value rule as Accept: for duplicate / redundant /
+      // misplaced, the user's text is intent (e.g. "I'll keep this copy and
+      // drop the one under data_input"); don't blindly write it into a
+      // question's value. V2.7 surfaces the intent in notes/ai-review.md.
+      if (INTENT_ONLY_KINDS.indexOf(iss.kind) < 0) {
+        _applyToTargetQuestion(iss.phase_id, iss.question_id, value);
+      }
+      _writeResponse(iss.id, { kind: "change", applied_value: value });
+      editingId = null;
+      editingDraft = "";
+    }
+
+    function _onUndo(iss) {
+      _clearResponse(iss.id);
+    }
+
+    function _kindLabel(kind) {
+      const map = {
+        ambiguity: "Ambiguity",
+        conflict: "Conflict",
+        duplicate: "Duplicate",
+        misplaced: "Misplaced",
+        redundant: "Redundant",
+        missing_context: "Missing context",
+      };
+      return map[kind] || kind;
+    }
+
+    function _severityClass(iss) {
+      if (iss.severity === "conflict" || iss.kind === "conflict") return "ai-overlay-conflict";
+      if (iss.kind === "misplaced") return "ai-overlay-misplaced";
+      return "ai-overlay-warning";
+    }
+
+    function _renderResolvedBody(iss, resp) {
+      const labels = {
+        accept:           "✓ You accepted Claude's suggestion.",
+        change:           "✓ You changed it to your own answer.",
+        reject:           "✕ You kept your answer.",
+        defer_to_claude:  "🛈 You asked Claude to choose during the build.",
+      };
+      const summary = labels[resp.kind] || ("Recorded: " + resp.kind);
+      const value = (resp.kind === "accept" || resp.kind === "change") && resp.applied_value
+        ? e("blockquote", { class: "ai-overlay-applied" }, resp.applied_value)
+        : null;
+      return e("div", { class: "ai-overlay-resolved" }, [
+        e("p", { class: "ai-overlay-resolved-summary" }, summary),
+        value,
+        e("p", null, [
+          e("button", {
+            type: "button", class: "link",
+            onclick: function () { _onUndo(iss); },
+          }, "Undo"),
+        ]),
+      ]);
+    }
+
+    function _renderEditor(iss) {
+      return e("div", { class: "ai-overlay-editor" }, [
+        e("label", { class: "kicker", "for": "ai-overlay-edit-" + iss.id }, "Your answer"),
+        e("textarea", {
+          id: "ai-overlay-edit-" + iss.id,
+          class: "q-input q-textarea ai-overlay-textarea",
+          rows: "3",
+          value: editingDraft,
+          oninput: function (ev) { editingDraft = ev.currentTarget.value; },
+        }),
+        e("div", { class: "ai-overlay-actions" }, [
+          e("button", { type: "button", class: "primary",
+            onclick: function () { _onSaveChange(iss); } }, "Save"),
+          e("button", { type: "button", onclick: _onCancelChange }, "Cancel"),
+        ]),
+      ]);
+    }
+
+    function _renderPendingActions(iss) {
+      const canDefer = (iss.kind === "ambiguity" || iss.kind === "missing_context");
+      return e("div", { class: "ai-overlay-actions" }, [
+        e("button", {
+          type: "button", class: "primary",
+          title: "Apply Claude's suggestion to this question.",
+          onclick: function () { _onAccept(iss); },
+        }, "Accept"),
+        e("button", {
+          type: "button",
+          title: "Open an editor pre-filled with Claude's suggestion.",
+          onclick: function () { _onStartChange(iss); },
+        }, "Change"),
+        e("button", {
+          type: "button",
+          title: "Keep your answer as-is.",
+          onclick: function () { _onReject(iss); },
+        }, "Reject"),
+        canDefer
+          ? e("button", {
+              type: "button", class: "link",
+              title: "Records the issue so Claude picks a default during the build.",
+              onclick: function () { _onDeferToClaude(iss); },
+            }, "I don't know — Claude, you choose")
+          : null,
+      ]);
+    }
+
+    function _renderRelated(iss) {
+      if (!iss.related || iss.related.length === 0) return null;
+      const taxonomy = Data.questionTaxonomy;
+      const phases = (taxonomy && taxonomy.phases) || [];
+      function findPhase(id) { return phases.find(function (p) { return p.id === id; }) || null; }
+      return e("p", { class: "muted ai-overlay-related" }, [
+        "Related: ",
+        iss.related.map(function (r, idx) {
+          const rp = findPhase(r.phase_id);
+          const label = rp
+            ? ("Phase " + rp.number + (r.question_id ? (" → " + r.question_id) : ""))
+            : r.phase_id;
+          return e("span", null, (idx > 0 ? " · " : "") + label);
+        }),
+      ]);
+    }
+
+    function _renderOneBanner(iss) {
+      const resp = responseFor(iss.id);
+      const heading = "Claude says — " + _kindLabel(iss.kind);
+      const cls = "ai-overlay " + _severityClass(iss) + (resp ? " is-resolved" : "");
+      const isEditing = (editingId === iss.id) && !resp;
+
+      let body;
+      if (resp) {
+        body = _renderResolvedBody(iss, resp);
+      } else if (isEditing) {
+        body = _renderEditor(iss);
+      } else {
+        body = e("div", null, [
+          e("p", { class: "ai-overlay-comment" }, iss.comment || ""),
+          iss.suggestion
+            ? e("p", { class: "ai-overlay-suggestion" }, [
+                e("strong", null, "Suggestion: "), iss.suggestion,
+              ])
+            : null,
+          _renderRelated(iss),
+          _renderPendingActions(iss),
+        ]);
+      }
+
+      return e("aside", { class: cls, "data-issue-id": iss.id, role: "note" }, [
+        e("header", { class: "ai-overlay-head" }, [
+          e("strong", null, heading),
+        ]),
+        body,
+      ]);
+    }
+
+    /**
+     * Render the stack of banners for a (phaseId, questionId) target.
+     * Pass questionId === null for phase-level issues (issues without a
+     * question_id field). Returns null when there are no matching issues.
+     */
+    function renderBannerFor(phaseId, questionId) {
+      const issues = issuesFor(phaseId, questionId);
+      if (issues.length === 0) return null;
+      return e("div", { class: "ai-overlay-stack" }, issues.map(_renderOneBanner));
+    }
+
+    function pendingCount() {
+      const last = _latest();
+      if (!last) return 0;
+      const responded = (last.user_responses) || {};
+      let n = 0;
+      for (const iss of (last.issues || [])) {
+        if (!responded[iss.id]) n++;
+      }
+      return n;
+    }
+
+    return {
+      renderBannerFor: renderBannerFor,
+      issuesFor:       issuesFor,
+      responseFor:     responseFor,
+      pendingCount:    pendingCount,
+    };
   })();
 
   // ----- PhaseShell ----------------------------------------------------------
@@ -2279,9 +2599,12 @@
 
     function renderPhaseBody(phase, ps) {
       const stale = renderStaleBanner(phase, ps);
+      // V2.5: phase-level AI review banners (issues without question_id).
+      const phaseLevelOverlay = ClarificationOverlay.renderBannerFor(phase.id, null);
       if (ps.mode === "skipped") {
         return e("div", null, [
           stale,
+          phaseLevelOverlay,
           e("div", { class: "card phase-body" }, [
             e("p", { class: "muted" }, [
               "Phase marked Skipped. A sensible default will be applied. Switch to Detailed or Simplified above to answer.",
@@ -2293,6 +2616,7 @@
       if (visibleQuestions.length === 0) {
         return e("div", null, [
           stale,
+          phaseLevelOverlay,
           e("div", { class: "card phase-body" }, [
             e("p", { class: "muted" }, "No questions yet for this phase. Detailed-mode content lands as the build advances."),
           ]),
@@ -2302,7 +2626,11 @@
       const cards = visibleQuestions.map(function (q) {
         return Question.render(phase.id, q, helpers);
       });
-      return e("div", null, [stale, e("div", { class: "phase-questions" }, cards)]);
+      return e("div", null, [
+        stale,
+        phaseLevelOverlay,
+        e("div", { class: "phase-questions" }, cards),
+      ]);
     }
 
     function render(phaseId) {
@@ -2664,6 +2992,20 @@
       const heading = "Claude says — " + kindLabel
         + (phase ? (" · Phase " + phase.number + " (" + phase.title + ")") : "")
         + (question ? (" → " + (question.label || question.id)) : "");
+      // V2.5: a flat-list entry shows whether the issue has been resolved
+      // already on the phase screen. If so, mark it with the user's choice
+      // and dim the body. If not, link the user to the phase to act on it.
+      const resp = ClarificationOverlay.responseFor(iss.id);
+      const respLabels = {
+        accept:           "✓ Accepted",
+        change:           "✓ Changed",
+        reject:           "✕ Rejected",
+        defer_to_claude:  "🛈 Deferred to Claude",
+      };
+      const statusBadge = resp
+        ? e("span", { class: "ai-issue-status" }, respLabels[resp.kind] || resp.kind)
+        : e("span", { class: "ai-issue-status ai-issue-status-pending" }, "Pending");
+
       const related = (iss.related && iss.related.length)
         ? e("p", { class: "muted ai-issue-related" }, [
             "Related: ",
@@ -2675,10 +3017,11 @@
           ])
         : null;
 
-      const cls = "ai-issue " + severityClass(iss.severity, iss.kind);
+      const cls = "ai-issue " + severityClass(iss.severity, iss.kind) + (resp ? " is-resolved" : "");
       return e("article", { class: cls }, [
         e("header", { class: "ai-issue-head" }, [
           e("strong", null, heading),
+          statusBadge,
         ]),
         e("p", { class: "ai-issue-comment" }, iss.comment || ""),
         iss.suggestion
@@ -2688,14 +3031,12 @@
             ])
           : null,
         related,
-        // V2.5 will land Accept / Change / Reject controls here. For V2.4 we
-        // surface an explicit "Open phase →" so the user can navigate manually.
         phase ? e("p", null, [
           e("button", {
             type: "button",
             class: "link",
             onclick: function () { Router.go(phase.id); },
-          }, "Open phase →"),
+          }, resp ? "Open phase to revisit →" : "Open phase to respond →"),
         ]) : null,
       ]);
     }
@@ -2751,6 +3092,8 @@
           "Sending your answers to Claude. This usually takes 10 – 30 seconds.");
       } else if (last) {
         const issues = last.issues || [];
+        const pending = ClarificationOverlay.pendingCount();
+        const responded = issues.length - pending;
         const summary = last.summary
           ? e("p", { class: "ai-review-summary" }, [
               e("strong", null, "Summary: "), last.summary,
@@ -2759,6 +3102,12 @@
         const readyBanner = last.ready_to_generate
           ? e("p", { class: "ai-review-ready", role: "status" },
               "✓ Claude says these answers are ready to generate.")
+          : null;
+        const progressLine = issues.length > 0
+          ? e("p", { class: "muted ai-review-progress" }, [
+              String(pending), " pending · ", String(responded), " responded · ",
+              "Open the relevant phase to Accept / Change / Reject each issue inline.",
+            ])
           : null;
         const issueList = issues.length === 0
           ? e("p", { class: "muted" },
@@ -2773,7 +3122,7 @@
           String(last.output_tokens | 0), " out tokens",
           " · ", new Date(last.timestamp).toLocaleString(),
         ]);
-        body = e("div", null, [readyBanner, summary, issueList, meta]);
+        body = e("div", null, [readyBanner, summary, progressLine, issueList, meta]);
       } else {
         body = e("p", { class: "muted" }, [
           "Click ", e("strong", null, "Get AI review"),
