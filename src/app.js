@@ -661,10 +661,11 @@
     if (!g) throw new Error("PromptWizardGenerator not loaded — check that src/generator.js was bundled before src/app.js.");
     function dataBundle() {
       return {
-        taxonomy:      Data.questionTaxonomy,
-        techStacks:    Data.techStacks,
-        prerequisites: Data.prerequisites,
-        buildInfo:     Data.buildInfo || {},
+        taxonomy:           Data.questionTaxonomy,
+        techStacks:         Data.techStacks,
+        prerequisites:      Data.prerequisites,
+        inconsistencyRules: Data.inconsistencyRules,
+        buildInfo:          Data.buildInfo || {},
       };
     }
     return {

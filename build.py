@@ -400,6 +400,7 @@ def _build_data_bundle_json(out_path: Path) -> int:
         "taxonomy":      load("src/data/question-taxonomy.yaml"),
         "techStacks":    load("src/data/tech-stack-catalog.yaml"),
         "prerequisites": load("src/data/prerequisite-catalog.yaml"),
+        "inconsistencyRules": load("src/data/inconsistency-rules.yaml"),
         "buildInfo": {
             "wizard_version":             WIZARD_VERSION,
             "data_version":               _data_version(),

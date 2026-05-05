@@ -16,6 +16,4 @@
 
 ## Phase 9: Data — Output
 
-**Phase comment:**
-
-> The CSV format should use a header row and quote fields containing commas. Validation: name and email are required, email must match a basic pattern, duplicate emails should be rejected on import with a summary of skipped rows.
+**Phase comment:** _(identical to the comment under Phase 5: Data — Input — recorded twice by the user.)_

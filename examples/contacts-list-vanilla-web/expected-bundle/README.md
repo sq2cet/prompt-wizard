@@ -24,7 +24,7 @@ This bundle was produced by [prompt-wizard](https://github.com/sq2cet/prompt-wiz
 - `docs/09-data-output.md` — Outputs from the system
 - `docs/10-validation.md` — Validation strategy
 - `docs/11-error-handling.md` — Error taxonomy & policies
-- `docs/12-logging-and-observability.md` — Logs · metrics · traces · alerts · SLOs · audit
+- `docs/12-logging-observability.md` — Logs · metrics · traces · alerts · SLOs · audit
 - `docs/13-operations.md` — Deploy · CI/CD · monitoring
 - `docs/14-compliance.md` — Compliance & “Not legal advice” guardrail
 - `docs/15-constraints.md` — Budget · timeline · forced/forbidden tech

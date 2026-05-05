@@ -22,3 +22,12 @@ Fullstack with file-based DB, batteries-included.
 - SQLite has practical write-concurrency limits.
 
 **Prerequisites:** `node`, `git`
+
+
+## Forbidden tech (per `docs/15-constraints.md`)
+
+> The user has explicitly excluded:
+> 
+> No cloud services.
+
+Reject any catalog suggestion above that overlaps with this list and pick a non-overlapping alternative.
