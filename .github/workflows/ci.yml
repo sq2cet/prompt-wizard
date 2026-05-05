@@ -79,9 +79,11 @@ jobs:
       - name: Sanity-check artefact
         run: |
           test -s prompt-wizard.html
-          # Must contain at least one of the inline data tags and the app JS hook.
+          # Inline data tags + the app mount point must be present.
           grep -q 'id="data-question-taxonomy"' prompt-wizard.html
           grep -q '<div id="app"' prompt-wizard.html
+          # Vendored JSZip must be embedded (Bundler depends on it).
+          grep -q 'JSZip' prompt-wizard.html
           # Must NOT contain any unresolved placeholder tokens.
           if grep -E '__[A-Z][A-Z0-9_]+__' prompt-wizard.html ; then
             echo "Unresolved placeholder tokens detected" >&2

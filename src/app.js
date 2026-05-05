@@ -1037,10 +1037,52 @@
     };
   })();
 
+  // ----- Bundler -------------------------------------------------------------
+  // Packs the Generator's filename→content map into a ZIP using vendored
+  // JSZip (loaded into `window.JSZip`). The ZIP root is the project slug,
+  // matching the bundle layout in the plan:
+  //   <project-slug>-prompt.zip / <project-slug>/...
+
+  const Bundler = (function () {
+    function isAvailable() {
+      return typeof window !== "undefined" && typeof window.JSZip === "function";
+    }
+
+    /**
+     * Build a JSZip instance from a filename → content map. Returns the zip
+     * object; caller chooses how to serialise (Blob / arraybuffer / etc.).
+     */
+    function build(slug, filesMap) {
+      if (!isAvailable()) throw new Error("JSZip is not available; the wizard was built without it.");
+      const zip = new window.JSZip();
+      const root = zip.folder(slug);
+      for (const name in filesMap) {
+        root.file(name, filesMap[name]);
+      }
+      return zip;
+    }
+
+    /** Build + serialise to a Blob with the standard ZIP options. */
+    function pack(slug, filesMap) {
+      const zip = build(slug, filesMap);
+      return zip.generateAsync({
+        type: "blob",
+        compression: "DEFLATE",
+        compressionOptions: { level: 6 },
+      });
+    }
+
+    return { isAvailable, build, pack };
+  })();
+
   // ----- Download helpers ----------------------------------------------------
 
   function downloadString(filename, content, mime) {
     const blob = new Blob([content], { type: (mime || "text/plain") + ";charset=utf-8" });
+    downloadBlob(filename, blob);
+  }
+
+  function downloadBlob(filename, blob) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1881,25 +1923,52 @@
 
     function renderActionsPanel() {
       const slug = Generator.projectSlug(State.get());
+
       function downloadAnswers() {
         downloadString(slug + "-answers.json", JSON.stringify(State.get(), null, 2), "application/json");
       }
       function openPreview() { Router.go("preview"); }
-      function generateBundle() {
-        // Placeholder: ZIP packing lands in the next milestone. For now,
-        // download answers.json as a round-trip artefact.
-        downloadAnswers();
-        alert(
-          "Phase 5 milestone: only answers.json is downloaded today.\n\n" +
-          "The full ZIP bundle (PROMPT.md + 15 phase docs + meta/* + notes + answers.json)" +
-          " will land in the next build phase, which vendors JSZip and packs the bundle."
-        );
+
+      function generateBundle(ev) {
+        const btn = ev && ev.currentTarget;
+        const original = btn ? btn.textContent : null;
+        if (btn) { btn.disabled = true; btn.textContent = "Packing…"; }
+        try {
+          if (!Bundler.isAvailable()) {
+            alert(
+              "JSZip is not available in this build, so the ZIP cannot be packed.\n" +
+              "answers.json will be downloaded instead."
+            );
+            downloadAnswers();
+            return;
+          }
+          const files = Generator.generateAll(State.get(), Data.questionTaxonomy);
+          Bundler.pack(slug, files).then(function (blob) {
+            downloadBlob(slug + "-prompt.zip", blob);
+          }).catch(function (err) {
+            console.error("ZIP packing failed", err);
+            alert(
+              "Could not pack the ZIP: " + (err && err.message ? err.message : err) + "\n" +
+              "Falling back to answers.json download."
+            );
+            downloadAnswers();
+          }).then(function () {
+            if (btn) { btn.disabled = false; btn.textContent = original; }
+          });
+        } catch (err) {
+          console.error(err);
+          if (btn) { btn.disabled = false; btn.textContent = original; }
+          alert("Generate failed: " + (err && err.message ? err.message : err));
+        }
       }
+
       return e("div", { class: "card review-actions" }, [
         e("h2", null, "Generate"),
         e("p", { class: "muted" }, [
           "Run a Preview to see exactly what Claude Code will receive. ",
-          "When you are happy, click Generate.",
+          "When you are happy, click Generate — a ZIP named ",
+          e("code", null, slug + "-prompt.zip"),
+          " downloads to your Downloads folder.",
         ]),
         e("div", { class: "review-actions-row" }, [
           e("button", { type: "button", class: "primary", onclick: openPreview }, "Preview prompt"),

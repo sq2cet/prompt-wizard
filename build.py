@@ -289,7 +289,15 @@ TEMPLATE_DATA_INPUTS: dict[str, str] = {
 TEMPLATE_FRAGMENT_INPUTS: dict[str, str] = {
     "STYLES": "src/styles.css",
     "APP_JS": "src/app.js",
+    "JSZIP":  "src/vendor/jszip/jszip.min.js",
 }
+
+# Vendored libraries that must be SHA-pinned. `build.py` refuses to bundle
+# any vendor file whose computed SHA-256 does not match the pinned value
+# in <vendor-dir>/SHA256SUMS.
+VENDOR_DIRS: tuple[str, ...] = (
+    "src/vendor/jszip",
+)
 
 WIZARD_VERSION = "0.1.0"  # Single source of truth; bumped per release.
 
@@ -330,6 +338,48 @@ def _data_version() -> str:
         return "0.0.0"
 
 
+def _verify_vendor_sha_pins() -> int:
+    """Verify SHA-256 of every vendored file against its SHA256SUMS pin.
+
+    Returns the number of failures. Logs each failure to stderr.
+    """
+    import hashlib
+    failures = 0
+    for vendor_rel in VENDOR_DIRS:
+        vendor_dir = PROJECT_ROOT / vendor_rel
+        sums_path = vendor_dir / "SHA256SUMS"
+        if not sums_path.is_file():
+            sys.stderr.write(f"ERROR: missing SHA pin file: {sums_path}\n")
+            failures += 1
+            continue
+        for line in sums_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(None, 1)
+            if len(parts) != 2:
+                sys.stderr.write(f"ERROR: malformed SHA pin line in {sums_path}: {line!r}\n")
+                failures += 1
+                continue
+            expected_hex, fname = parts
+            target = vendor_dir / fname
+            if not target.is_file():
+                sys.stderr.write(f"ERROR: pinned file missing: {target}\n")
+                failures += 1
+                continue
+            actual = hashlib.sha256(target.read_bytes()).hexdigest()
+            if actual != expected_hex:
+                sys.stderr.write(
+                    f"ERROR: SHA-256 mismatch for {target.relative_to(PROJECT_ROOT)}\n"
+                    f"  expected: {expected_hex}\n"
+                    f"  actual:   {actual}\n"
+                    f"This usually means the vendored copy was changed without updating {sums_path.relative_to(PROJECT_ROOT)}.\n"
+                    f"Verify upstream and re-pin if the change is intentional.\n"
+                )
+                failures += 1
+    return failures
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     """Compile src/ → prompt-wizard.html (single-file deliverable)."""
     try:
@@ -341,6 +391,11 @@ def cmd_build(args: argparse.Namespace) -> int:
             f"Run: python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt\n"
         )
         return 2
+
+    # Verify vendored libraries first — refuse to ship a build with a
+    # tampered or unintentionally-upgraded dependency.
+    if _verify_vendor_sha_pins() > 0:
+        return 1
 
     template_path = PROJECT_ROOT / "src/index.template.html"
     if not template_path.is_file():
