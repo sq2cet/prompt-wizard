@@ -755,6 +755,13 @@ button.link:hover { text-decoration: none; }
   margin: 8px 0;
 }
 .ai-review-iter-meta { margin-top: 12px; font-size: 0.85rem; }
+.ai-review-stopped {
+  border-left: 4px solid var(--accent);
+  background: var(--bg);
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  margin: 8px 0;
+}
 
 .ai-issue-list {
   display: flex;

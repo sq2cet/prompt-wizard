@@ -1038,24 +1038,51 @@
     }
 
     /**
-     * Summarise prior iterations (compact form) for repeat calls. V2.4 only
-     * makes one call; this function is forward-compat for V2.6's loop.
+     * Detail prior iterations for repeat calls. Each prior issue is listed
+     * with the kind + anchor + comment + suggestion + the user's response
+     * (including any value they typed via Change). This lets Claude know
+     * exactly what was already raised, what was accepted, what was changed
+     * and to what, what was rejected, and what was deferred — so the next
+     * iteration doesn't re-raise the same things blindly.
+     *
+     * V2.4 used a count-only summary; V2.6 widens this to per-issue detail
+     * (the iteration loop needs it to converge).
      */
     function summarisePriorIterations(state) {
       const ai = (state && state.ai_review) || {};
       const iters = (ai.iterations || []);
       if (iters.length === 0) return "(none — this is the first review pass.)";
-      return iters.map(function (it, idx) {
-        const responseCounts = {};
-        for (const r of Object.values(it.user_responses || {})) {
-          responseCounts[r.kind] = (responseCounts[r.kind] || 0) + 1;
+      const blocks = iters.map(function (it, idx) {
+        const issues = it.issues || [];
+        const responses = it.user_responses || {};
+        const lines = ["## Iteration " + (idx + 1)
+          + " (model " + (it.model || "?") + ", "
+          + (it.input_tokens | 0) + " in / " + (it.output_tokens | 0) + " out tokens)"];
+        if (issues.length === 0) {
+          lines.push("(no issues surfaced.)");
+          return lines.join("\n");
         }
-        return [
-          "Iteration " + (idx + 1) + ":",
-          "  surfaced " + ((it.issues || []).length) + " issue(s);",
-          "  user responses: " + JSON.stringify(responseCounts) + ".",
-        ].join(" ");
-      }).join("\n");
+        for (const iss of issues) {
+          const resp = responses[iss.id] || null;
+          const anchor = iss.phase_id + (iss.question_id ? ("/" + iss.question_id) : "");
+          lines.push("- **" + iss.kind + "** at `" + anchor + "`: " + (iss.comment || "").trim());
+          if (iss.suggestion) {
+            lines.push("  - Your suggestion: " + iss.suggestion.trim());
+          }
+          if (resp) {
+            const respPart = "  - User response: **" + resp.kind + "**";
+            if (resp.applied_value && (resp.kind === "accept" || resp.kind === "change")) {
+              lines.push(respPart + " — applied value: " + JSON.stringify(resp.applied_value));
+            } else {
+              lines.push(respPart + ".");
+            }
+          } else {
+            lines.push("  - User response: (no response — issue was abandoned, ignore unless still load-bearing).");
+          }
+        }
+        return lines.join("\n");
+      });
+      return blocks.join("\n\n");
     }
 
     /**
@@ -2942,12 +2969,64 @@
       ]);
     }
 
+    // V2.6: shape helpers for the iteration loop. The iteration cap comes
+    // from AISettings.getConfig().max_iterations (default 5 per the V2 plan).
+    function _aiState() {
+      return State.get().ai_review || null;
+    }
+    function _iterationCount() {
+      const ai = _aiState();
+      return ai ? (ai.iterations || []).length : 0;
+    }
+    function _maxIterations() {
+      const cfg = AISettings.getConfig();
+      return Math.max(1, (cfg.max_iterations | 0) || AISettings.DEFAULTS.max_iterations);
+    }
+    function _stoppedBy() {
+      const ai = _aiState();
+      return ai ? (ai.stopped_by || null) : null;
+    }
+    function _isStopped() {
+      return _stoppedBy() != null;
+    }
+    function _atCap() {
+      return _iterationCount() >= _maxIterations();
+    }
+
+    function _markStopped(reason) {
+      State.commit(function (s) {
+        if (!s.ai_review) return;
+        s.ai_review.stopped_by = reason;
+      });
+    }
+
+    function onUserDone() {
+      _markStopped("user_done");
+    }
+
+    function onResumeReview() {
+      // Lets the user re-open the loop after I'm done — useful if they
+      // change their mind. Cap is still enforced.
+      State.commit(function (s) {
+        if (!s.ai_review) return;
+        s.ai_review.stopped_by = null;
+      });
+    }
+
     async function runAIReview() {
       // No key → open Settings (same UX as the V2 plan's "first AI button click").
       if (!AISettings.hasApiKey()) {
         openSettingsModal();
         return;
       }
+      // Hard cap defensively — UI should already disable the button, but
+      // guard anyway in case it's invoked some other way.
+      if (_atCap() && !_isStopped()) {
+        _markStopped("iteration_cap");
+        return;
+      }
+      if (_isStopped()) return;
+
       aiBusy = true;
       aiError = null;
       WizardApp.rerender();
@@ -2975,6 +3054,13 @@
             (s.ai_review.total_input_tokens  | 0) + (result.iteration.input_tokens  | 0);
           s.ai_review.total_output_tokens =
             (s.ai_review.total_output_tokens | 0) + (result.iteration.output_tokens | 0);
+          // Stop the loop if Claude flagged ready, or if this iteration just
+          // hit the cap. The user can always override with "I'm done now".
+          if (s.ai_review.ready_to_generate) {
+            s.ai_review.stopped_by = "claude_ready";
+          } else if ((s.ai_review.iterations || []).length >= _maxIterations()) {
+            s.ai_review.stopped_by = "iteration_cap";
+          }
         });
       } catch (err) {
         aiError = (err && err.message) ? err.message : String(err);
@@ -3047,9 +3133,26 @@
       const last = latestIteration();
       const usage = AISettings.getUsage();
 
-      const buttonLabel = aiBusy
+      // V2.6: iteration loop state.
+      const iterCount = _iterationCount();
+      const maxIters  = _maxIterations();
+      const stopped   = _isStopped();
+      const stoppedBy = _stoppedBy();
+      const pending   = ClarificationOverlay.pendingCount();
+      const atCap     = _atCap();
+
+      const primaryLabel = aiBusy
         ? "Reviewing… (10 – 30s)"
-        : (last ? "Run another AI review" : "Get AI review");
+        : (iterCount === 0 ? "Get AI review" : "Send updated answers");
+
+      // Disable the primary button when stopped or capped, when busy,
+      // or when iteration > 0 and the user hasn't responded to anything
+      // (rerunning identical answers wastes tokens).
+      const primaryDisabled =
+        aiBusy ||
+        stopped ||
+        atCap ||
+        (iterCount > 0 && pending === (last ? (last.issues || []).length : 0));
 
       const headerRow = e("div", { class: "ai-review-head" }, [
         e("h2", null, "AI review"),
@@ -3057,6 +3160,7 @@
           hasKey
             ? e("span", { class: "muted" }, [
                 "Model: ", e("code", null, cfg.model || AISettings.DEFAULTS.model),
+                " · Iteration ", String(iterCount), " / ", String(maxIters),
                 " · Total: ",
                 String(usage.input_tokens | 0), " in / ",
                 String(usage.output_tokens | 0), " out tokens",
@@ -3066,13 +3170,44 @@
         ]),
       ]);
 
+      // Stopped-state notice. The user can resume (subject to cap) or click
+      // I'm done to lock the loop closed for the bundle.
+      const stopNotice = stopped
+        ? e("p", { class: "ai-review-stopped", role: "status" }, [
+            stoppedBy === "claude_ready"   ? "✓ Claude flagged these answers ready to generate. " :
+            stoppedBy === "user_done"      ? "✓ You marked the review complete. " :
+            stoppedBy === "iteration_cap"  ? ("⚠ Iteration cap reached (" + maxIters + "). The bundle will record where the loop stopped. ") :
+            "✓ Review loop stopped. ",
+            (!atCap && stoppedBy !== "claude_ready")
+              ? e("button", { type: "button", class: "link", onclick: onResumeReview },
+                  "Resume the review")
+              : null,
+          ])
+        : null;
+
       const buttonRow = e("div", { class: "ai-review-actions" }, [
         e("button", {
           type: "button",
           class: "primary",
           onclick: runAIReview,
-          disabled: aiBusy ? true : null,
-        }, buttonLabel),
+          disabled: primaryDisabled ? true : null,
+          title: stopped
+            ? "Review loop stopped. Resume above to send another iteration."
+            : (atCap
+              ? ("Iteration cap reached (" + maxIters + ").")
+              : (primaryDisabled && iterCount > 0
+                  ? "Respond to at least one issue (Accept / Change / Reject / Defer) before sending again."
+                  : null)),
+        }, primaryLabel),
+        // I'm done — generate now: visible after first review, only when
+        // the loop hasn't already stopped. Lets the user lock the loop
+        // before reaching the cap; the bundle's notes/ai-review.md records
+        // stopped_by = "user_done".
+        (iterCount > 0 && !stopped)
+          ? e("button", { type: "button",
+              title: "Stop the review loop and proceed to Generate. Recorded as user_done in the bundle.",
+              onclick: onUserDone }, "I'm done — generate now")
+          : null,
         hasKey
           ? e("button", { type: "button", class: "link",
               onclick: function () { openSettingsModal(); } }, "AI settings")
@@ -3135,6 +3270,7 @@
       return e("section", { class: "card review-ai" }, [
         headerRow,
         buttonRow,
+        stopNotice,
         errorRow,
         body,
       ]);
