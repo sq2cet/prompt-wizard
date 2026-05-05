@@ -1,0 +1,453 @@
+{
+  "answers_schema_version": "1.0",
+  "wizard_version": "0.1.0",
+  "data_version": "0.1.0",
+  "claude_code_target_version": "1.x",
+  "started_at": "2026-05-05T10:00:00.000Z",
+  "last_modified_at": "2026-05-05T10:00:00.000Z",
+  "project_slug": "personal-photo-classifier",
+  "quality_bar": "personal",
+  "preflight": {
+    "claude_code_attested": true,
+    "attested_at": "2026-05-05T10:00:00.000Z"
+  },
+  "phases": {
+    "vision": {
+      "mode": "detailed",
+      "answers": {
+        "pitch": {
+          "state": "answered",
+          "value": "Classify a personal photo library into rough buckets \u2014 people, places, things \u2014 using a pre-trained vision model.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "problem": {
+          "state": "answered",
+          "value": "I have thousands of photos and want to find 'every shot with a dog' or 'every landscape' without manually tagging.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "success_criteria": {
+          "state": "answered",
+          "value": [
+            "Running the classifier on a 5 000-photo library produces tag JSON-Lines output without crashing.",
+            "Top-1 accuracy on a 100-photo manually-labelled validation set is at least 70%.",
+            "I can ask the CLI to print every photo tagged with a given label."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "quality_bar": {
+          "state": "answered",
+          "value": "personal",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "audience": {
+      "mode": "detailed",
+      "answers": {
+        "who": {
+          "state": "answered",
+          "value": "Just me, on my laptop.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "scale": {
+          "state": "answered",
+          "value": "solo",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "devices": {
+          "state": "answered",
+          "value": [
+            "desktop"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "accessibility": {
+          "state": "answered",
+          "value": "best_effort",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "internationalisation": {
+          "state": "answered",
+          "value": false,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "technical_literacy": {
+          "state": "answered",
+          "value": "technical",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "form_factor": {
+      "mode": "detailed",
+      "answers": {
+        "factors": {
+          "state": "answered",
+          "value": [
+            "ml",
+            "cli"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "primary_factor": {
+          "state": "answered",
+          "value": "ml",
+          "answered_at": "2026-05-05T10:00:00.000Z",
+          "rationale": "The bulk of the value is the classifier itself; the CLI is just the harness."
+        },
+        "delivery": {
+          "state": "answered",
+          "value": "source",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "features": {
+      "mode": "detailed",
+      "answers": {
+        "must_have": {
+          "state": "answered",
+          "value": [
+            "Walk a directory of JPEG/PNG/HEIC photos.",
+            "Run a pre-trained classifier and emit tags.",
+            "Query the resulting tag store from the CLI."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "should_have": {
+          "state": "answered",
+          "value": [
+            "Cache classifier output so re-runs only process new files.",
+            "Support a custom labels file."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "nice_to_have": {
+          "state": "answered",
+          "value": [
+            "GPU acceleration on CUDA / Metal."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "killer_feature": {
+          "state": "answered",
+          "value": "I never manually tag a photo again.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_input": {
+      "mode": "detailed",
+      "answers": {
+        "sources": {
+          "state": "answered",
+          "value": "JPEG, PNG, HEIC files in a chosen root directory.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "formats": {
+          "state": "answered",
+          "value": [
+            "JPEG",
+            "PNG",
+            "HEIC"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "volume": {
+          "state": "answered",
+          "value": "modest",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "frequency": {
+          "state": "answered",
+          "value": "ondemand",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_process": {
+      "mode": "detailed",
+      "answers": {
+        "transforms": {
+          "state": "answered",
+          "value": "Decode \u2192 resize \u2192 run classifier \u2192 top-K labels per image \u2192 write JSONL.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "scheduling": {
+          "state": "answered",
+          "value": "ondemand",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "idempotency": {
+          "state": "answered",
+          "value": true,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_exchange": {
+      "mode": "detailed",
+      "answers": {
+        "protocols": {
+          "state": "answered",
+          "value": "No external integrations.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "sync_vs_async": {
+          "state": "answered",
+          "value": "sync",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "retry_policy": {
+          "state": "answered",
+          "value": "fail_fast",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_store": {
+      "mode": "detailed",
+      "answers": {
+        "storage_type": {
+          "state": "answered",
+          "value": "JSONL file under the project directory; one line per photo with path and tags.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "retention": {
+          "state": "answered",
+          "value": "forever",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "encryption_at_rest": {
+          "state": "answered",
+          "value": false,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "backup": {
+          "state": "answered",
+          "value": "none",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_output": {
+      "mode": "detailed",
+      "answers": {
+        "outputs": {
+          "state": "answered",
+          "value": "JSONL on disk; CLI subcommand prints filtered results.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "channels": {
+          "state": "answered",
+          "value": [
+            "ui",
+            "file"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "realtime_or_batch": {
+          "state": "answered",
+          "value": "batch",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "validation": {
+      "mode": "detailed",
+      "answers": {
+        "strategy": {
+          "state": "answered",
+          "value": "Type-check on entry; reject empty mandatory fields with an inline message.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "enforcement_point": {
+          "state": "answered",
+          "value": [
+            "client",
+            "domain"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "failure_response": {
+          "state": "answered",
+          "value": "reject",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "error_handling": {
+      "mode": "detailed",
+      "answers": {
+        "taxonomy": {
+          "state": "answered",
+          "value": "Bad input \u2192 reject inline. Missing dependency \u2192 fail loudly. Unexpected exceptions \u2192 log and surface a generic 'Something went wrong, please retry'.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "error_ux": {
+          "state": "answered",
+          "value": "toast",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "critical_alerts": {
+          "state": "answered",
+          "value": "log",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "logging_observability": {
+      "mode": "detailed",
+      "answers": {
+        "logs": {
+          "state": "answered",
+          "value": "Application events at INFO; errors with stack at ERROR; structured JSON to stdout.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "log_format": {
+          "state": "answered",
+          "value": "structured",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "metrics_traces": {
+          "state": "answered",
+          "value": [
+            "health"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "pii_masking": {
+          "state": "answered",
+          "value": true,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "operations": {
+      "mode": "detailed",
+      "answers": {
+        "deploy": {
+          "state": "answered",
+          "value": "Run locally, no remote deploy.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "ci_cd": {
+          "state": "answered",
+          "value": "ci_only",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "incident_response": {
+          "state": "answered",
+          "value": "none",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "compliance": {
+      "mode": "detailed",
+      "answers": {
+        "regimes": {
+          "state": "answered",
+          "value": [
+            "none"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "constraints": {
+      "mode": "detailed",
+      "answers": {
+        "forced_tech": {
+          "state": "answered",
+          "value": "Python with a pre-trained vision model from Hugging Face.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "forbidden_tech": {
+          "state": "answered",
+          "value": "Cloud APIs (privacy).",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "hosting": {
+          "state": "answered",
+          "value": "local",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "timeline": {
+          "state": "answered",
+          "value": "No deadline \u2014 a personal project.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "budget": {
+          "state": "answered",
+          "value": "No paid services.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    }
+  },
+  "review": {
+    "followups_answered": {},
+    "followups_deferred": []
+  }
+}

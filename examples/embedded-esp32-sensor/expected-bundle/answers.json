@@ -1,0 +1,449 @@
+{
+  "answers_schema_version": "1.0",
+  "wizard_version": "0.1.0",
+  "data_version": "0.1.0",
+  "claude_code_target_version": "1.x",
+  "started_at": "2026-05-05T10:00:00.000Z",
+  "last_modified_at": "2026-05-05T10:00:00.000Z",
+  "project_slug": "esp32-temp-webhook",
+  "quality_bar": "personal",
+  "preflight": {
+    "claude_code_attested": true,
+    "attested_at": "2026-05-05T10:00:00.000Z"
+  },
+  "phases": {
+    "vision": {
+      "mode": "detailed",
+      "answers": {
+        "pitch": {
+          "state": "answered",
+          "value": "ESP32 temperature sensor that POSTs readings to a webhook every 5 minutes.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "problem": {
+          "state": "answered",
+          "value": "I want long-term temperature logs for the apartment but do not want to run a Pi 24/7. An ESP32 sleeps between readings and uses a few mA.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "success_criteria": {
+          "state": "answered",
+          "value": [
+            "The board boots, joins Wi-Fi, posts a reading, deep-sleeps, and wakes again on schedule.",
+            "Readings appear in the receiving webhook (e.g. an InfluxDB / Grafana set-up) with correct timestamps.",
+            "The board recovers automatically from a Wi-Fi or webhook outage."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "quality_bar": {
+          "state": "answered",
+          "value": "personal",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "audience": {
+      "mode": "detailed",
+      "answers": {
+        "who": {
+          "state": "answered",
+          "value": "Just me — homelab use.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "scale": {
+          "state": "answered",
+          "value": "solo",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "devices": {
+          "state": "answered",
+          "value": [
+            "other"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "accessibility": {
+          "state": "answered",
+          "value": "best_effort",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "internationalisation": {
+          "state": "answered",
+          "value": false,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "technical_literacy": {
+          "state": "answered",
+          "value": "technical",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "form_factor": {
+      "mode": "detailed",
+      "answers": {
+        "factors": {
+          "state": "answered",
+          "value": [
+            "embedded"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "primary_factor": {
+          "state": "answered",
+          "value": "embedded",
+          "answered_at": "2026-05-05T10:00:00.000Z",
+          "rationale": "The whole project is about a microcontroller; nothing else matches."
+        },
+        "delivery": {
+          "state": "answered",
+          "value": "source",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "features": {
+      "mode": "detailed",
+      "answers": {
+        "must_have": {
+          "state": "answered",
+          "value": [
+            "Read temperature from a DS18B20 / SHT30 sensor.",
+            "POST JSON {ts, c, rh} to a configurable URL.",
+            "Deep-sleep between readings."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "should_have": {
+          "state": "answered",
+          "value": [
+            "OTA firmware update.",
+            "Battery-voltage reporting."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "nice_to_have": {
+          "state": "answered",
+          "value": [
+            "Local on-board screen showing the latest reading."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "killer_feature": {
+          "state": "answered",
+          "value": "Months of uptime on a single 18650 cell.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_input": {
+      "mode": "detailed",
+      "answers": {
+        "sources": {
+          "state": "answered",
+          "value": "On-board sensor readings.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "formats": {
+          "state": "answered",
+          "value": [
+            "analogue / I2C / OneWire"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "volume": {
+          "state": "answered",
+          "value": "trickle",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "frequency": {
+          "state": "answered",
+          "value": "minute",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_process": {
+      "mode": "detailed",
+      "answers": {
+        "transforms": {
+          "state": "answered",
+          "value": "Average a few samples to debounce noise; format as JSON.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "scheduling": {
+          "state": "answered",
+          "value": "scheduled",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "idempotency": {
+          "state": "answered",
+          "value": false,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_exchange": {
+      "mode": "detailed",
+      "answers": {
+        "protocols": {
+          "state": "answered",
+          "value": "HTTPS POST to a single configurable webhook.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "sync_vs_async": {
+          "state": "answered",
+          "value": "sync",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "retry_policy": {
+          "state": "answered",
+          "value": "retry_simple",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_store": {
+      "mode": "detailed",
+      "answers": {
+        "storage_type": {
+          "state": "answered",
+          "value": "No on-device store; the receiving webhook is the durable record.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "retention": {
+          "state": "answered",
+          "value": "ephemeral",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "encryption_at_rest": {
+          "state": "answered",
+          "value": false,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "backup": {
+          "state": "answered",
+          "value": "none",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_output": {
+      "mode": "detailed",
+      "answers": {
+        "outputs": {
+          "state": "answered",
+          "value": "JSON over HTTPS.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "channels": {
+          "state": "answered",
+          "value": [
+            "webhook"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "realtime_or_batch": {
+          "state": "answered",
+          "value": "realtime",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "validation": {
+      "mode": "detailed",
+      "answers": {
+        "strategy": {
+          "state": "answered",
+          "value": "Type-check on entry; reject empty mandatory fields with an inline message.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "enforcement_point": {
+          "state": "answered",
+          "value": [
+            "client",
+            "domain"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "failure_response": {
+          "state": "answered",
+          "value": "reject",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "error_handling": {
+      "mode": "detailed",
+      "answers": {
+        "taxonomy": {
+          "state": "answered",
+          "value": "Bad input → reject inline. Missing dependency → fail loudly. Unexpected exceptions → log and surface a generic 'Something went wrong, please retry'.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "error_ux": {
+          "state": "answered",
+          "value": "toast",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "critical_alerts": {
+          "state": "answered",
+          "value": "log",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "logging_observability": {
+      "mode": "detailed",
+      "answers": {
+        "logs": {
+          "state": "answered",
+          "value": "Application events at INFO; errors with stack at ERROR; structured JSON to stdout.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "log_format": {
+          "state": "answered",
+          "value": "structured",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "metrics_traces": {
+          "state": "answered",
+          "value": [
+            "health"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "pii_masking": {
+          "state": "answered",
+          "value": true,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "operations": {
+      "mode": "detailed",
+      "answers": {
+        "deploy": {
+          "state": "answered",
+          "value": "Run locally, no remote deploy.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "ci_cd": {
+          "state": "answered",
+          "value": "ci_only",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "incident_response": {
+          "state": "answered",
+          "value": "none",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "compliance": {
+      "mode": "detailed",
+      "answers": {
+        "regimes": {
+          "state": "answered",
+          "value": [
+            "none"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "constraints": {
+      "mode": "detailed",
+      "answers": {
+        "forced_tech": {
+          "state": "answered",
+          "value": "ESP32 + PlatformIO + ESP-IDF.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "forbidden_tech": {
+          "state": "answered",
+          "value": "Arduino IDE (use PlatformIO for reproducible builds).",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "hosting": {
+          "state": "answered",
+          "value": "local",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "timeline": {
+          "state": "answered",
+          "value": "No deadline — a personal project.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "budget": {
+          "state": "answered",
+          "value": "No paid services.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    }
+  },
+  "review": {
+    "followups_answered": {},
+    "followups_deferred": []
+  }
+}

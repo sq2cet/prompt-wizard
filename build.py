@@ -20,6 +20,7 @@ The `scan` subcommand has no third-party dependencies.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -287,9 +288,10 @@ TEMPLATE_DATA_INPUTS: dict[str, str] = {
 }
 
 TEMPLATE_FRAGMENT_INPUTS: dict[str, str] = {
-    "STYLES": "src/styles.css",
-    "APP_JS": "src/app.js",
-    "JSZIP":  "src/vendor/jszip/jszip.min.js",
+    "STYLES":       "src/styles.css",
+    "APP_JS":       "src/app.js",
+    "GENERATOR_JS": "src/generator.js",
+    "JSZIP":        "src/vendor/jszip/jszip.min.js",
 }
 
 # Vendored libraries that must be SHA-pinned. `build.py` refuses to bundle
@@ -378,6 +380,72 @@ def _verify_vendor_sha_pins() -> int:
                 )
                 failures += 1
     return failures
+
+
+def _build_data_bundle_json(out_path: Path) -> int:
+    """Convert the YAML data files into a single JSON bundle for the Node tests."""
+    try:
+        import yaml
+    except ImportError as e:
+        sys.stderr.write(
+            f"ERROR: required Python package not installed: {e.name}\n"
+            f"Run: .venv/bin/pip install -r requirements-dev.txt\n"
+        )
+        return 2
+
+    def load(rel: str):
+        return yaml.safe_load((PROJECT_ROOT / rel).read_text(encoding="utf-8"))
+
+    bundle = {
+        "taxonomy":      load("src/data/question-taxonomy.yaml"),
+        "techStacks":    load("src/data/tech-stack-catalog.yaml"),
+        "prerequisites": load("src/data/prerequisite-catalog.yaml"),
+        "buildInfo": {
+            "wizard_version":             WIZARD_VERSION,
+            "data_version":               _data_version(),
+            "claude_code_target_version": "1.x",
+            "commit_sha":                 _git_short_sha(),
+            "built_at":                   "1970-01-01T00:00:00Z",  # frozen for reproducible snapshots
+        },
+    }
+    out_path.write_text(json.dumps(bundle), encoding="utf-8")  # noqa: F821 (json imported below)
+    return 0
+
+
+def cmd_snapshot(args: argparse.Namespace) -> int:
+    """Drive the Node-based snapshot tests over examples/<name>/state.json."""
+    import shutil
+    import subprocess
+    import tempfile
+
+    node = shutil.which("node")
+    if node is None:
+        sys.stderr.write(
+            "ERROR: Node.js is required to run snapshot tests.\n"
+            "Install Node 18+ (https://nodejs.org). The runtime is only used by tests; the wizard ships without it.\n"
+        )
+        return 2
+
+    examples_root = PROJECT_ROOT / "examples"
+    if not examples_root.is_dir():
+        sys.stderr.write(f"ERROR: examples directory not found: {examples_root}\n")
+        return 1
+
+    with tempfile.TemporaryDirectory() as td:
+        bundle_path = Path(td) / "data-bundle.json"
+        rc = _build_data_bundle_json(bundle_path)
+        if rc != 0:
+            return rc
+
+        cmd = [
+            node, str(PROJECT_ROOT / "tests" / "snapshot.mjs"),
+            "--data-bundle", str(bundle_path),
+            "--examples-root", str(examples_root),
+        ]
+        if args.update:
+            cmd.append("--update")
+        result = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
+        return result.returncode
 
 
 def cmd_build(args: argparse.Namespace) -> int:
@@ -512,6 +580,16 @@ def main() -> int:
 
     p_build = sub.add_parser("build", help="Compile src/ into prompt-wizard.html (TBD).")
     p_build.set_defaults(func=cmd_build)
+
+    p_snap = sub.add_parser(
+        "snapshot",
+        help="Run Node-based snapshot tests for examples/<name>/state.json against expected-bundle/.",
+    )
+    p_snap.add_argument(
+        "--update", action="store_true",
+        help="Re-bake every examples/<name>/expected-bundle/ from the current Generator output.",
+    )
+    p_snap.set_defaults(func=cmd_snapshot)
 
     args = parser.parse_args()
     return args.func(args)

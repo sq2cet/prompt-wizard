@@ -1,0 +1,451 @@
+{
+  "answers_schema_version": "1.0",
+  "wizard_version": "0.1.0",
+  "data_version": "0.1.0",
+  "claude_code_target_version": "1.x",
+  "started_at": "2026-05-05T10:00:00.000Z",
+  "last_modified_at": "2026-05-05T10:00:00.000Z",
+  "project_slug": "habit-tracker-mobile",
+  "quality_bar": "shareable",
+  "preflight": {
+    "claude_code_attested": true,
+    "attested_at": "2026-05-05T10:00:00.000Z"
+  },
+  "phases": {
+    "vision": {
+      "mode": "detailed",
+      "answers": {
+        "pitch": {
+          "state": "answered",
+          "value": "Habit tracker for iPhone with a home-screen widget showing today's progress.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "problem": {
+          "state": "answered",
+          "value": "I keep falling off habit streaks because I forget to log them. A widget reminding me at a glance fixes that.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "success_criteria": {
+          "state": "answered",
+          "value": [
+            "Tapping the widget records the habit for today in one gesture.",
+            "Streaks survive a missed day if marked 'rest day' explicitly.",
+            "Notifications fire at user-chosen times."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "quality_bar": {
+          "state": "answered",
+          "value": "shareable",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "audience": {
+      "mode": "detailed",
+      "answers": {
+        "who": {
+          "state": "answered",
+          "value": "Friends and family who are trying to build a daily habit.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "scale": {
+          "state": "answered",
+          "value": "small",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "devices": {
+          "state": "answered",
+          "value": [
+            "phone"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "accessibility": {
+          "state": "answered",
+          "value": "best_effort",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "internationalisation": {
+          "state": "answered",
+          "value": false,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "technical_literacy": {
+          "state": "answered",
+          "value": "non_technical",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "form_factor": {
+      "mode": "detailed",
+      "answers": {
+        "factors": {
+          "state": "answered",
+          "value": [
+            "mobile"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "primary_factor": {
+          "state": "answered",
+          "value": "mobile",
+          "answered_at": "2026-05-05T10:00:00.000Z",
+          "rationale": "The app needs to live on the home screen and prompt the user during their day; only a native mobile shape does that."
+        },
+        "delivery": {
+          "state": "answered",
+          "value": "app_store",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "features": {
+      "mode": "detailed",
+      "answers": {
+        "must_have": {
+          "state": "answered",
+          "value": [
+            "Add up to 5 daily habits.",
+            "Tap-to-mark-done from the widget.",
+            "Per-habit streak counter.",
+            "Per-habit reminder time."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "should_have": {
+          "state": "answered",
+          "value": [
+            "Weekly summary push notification.",
+            "Health-data integration for step-based habits."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "nice_to_have": {
+          "state": "answered",
+          "value": [
+            "Apple Watch complication."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "killer_feature": {
+          "state": "answered",
+          "value": "The widget removes the friction of logging.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_input": {
+      "mode": "detailed",
+      "answers": {
+        "sources": {
+          "state": "answered",
+          "value": "User taps in the app or on the home-screen widget.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "formats": {
+          "state": "answered",
+          "value": [
+            "tap-event"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "volume": {
+          "state": "answered",
+          "value": "trickle",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "frequency": {
+          "state": "answered",
+          "value": "ondemand",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_process": {
+      "mode": "detailed",
+      "answers": {
+        "transforms": {
+          "state": "answered",
+          "value": "Validate inputs and store the result.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "scheduling": {
+          "state": "answered",
+          "value": "ondemand",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "idempotency": {
+          "state": "answered",
+          "value": true,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_exchange": {
+      "mode": "detailed",
+      "answers": {
+        "protocols": {
+          "state": "answered",
+          "value": "No external integrations.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "sync_vs_async": {
+          "state": "answered",
+          "value": "sync",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "retry_policy": {
+          "state": "answered",
+          "value": "fail_fast",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_store": {
+      "mode": "detailed",
+      "answers": {
+        "storage_type": {
+          "state": "answered",
+          "value": "On-device SQLite via a CoreData stack. No server.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "retention": {
+          "state": "answered",
+          "value": "forever",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "encryption_at_rest": {
+          "state": "answered",
+          "value": true,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "backup": {
+          "state": "answered",
+          "value": "none",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_output": {
+      "mode": "detailed",
+      "answers": {
+        "outputs": {
+          "state": "answered",
+          "value": "On-screen habit list, widget rendering, system notifications.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "channels": {
+          "state": "answered",
+          "value": [
+            "ui",
+            "notification"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "realtime_or_batch": {
+          "state": "answered",
+          "value": "realtime",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "validation": {
+      "mode": "detailed",
+      "answers": {
+        "strategy": {
+          "state": "answered",
+          "value": "Type-check on entry; reject empty mandatory fields with an inline message.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "enforcement_point": {
+          "state": "answered",
+          "value": [
+            "client",
+            "domain"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "failure_response": {
+          "state": "answered",
+          "value": "reject",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "error_handling": {
+      "mode": "detailed",
+      "answers": {
+        "taxonomy": {
+          "state": "answered",
+          "value": "Bad input \u2192 reject inline. Missing dependency \u2192 fail loudly. Unexpected exceptions \u2192 log and surface a generic 'Something went wrong, please retry'.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "error_ux": {
+          "state": "answered",
+          "value": "toast",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "critical_alerts": {
+          "state": "answered",
+          "value": "log",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "logging_observability": {
+      "mode": "detailed",
+      "answers": {
+        "logs": {
+          "state": "answered",
+          "value": "Application events at INFO; errors with stack at ERROR; structured JSON to stdout.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "log_format": {
+          "state": "answered",
+          "value": "structured",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "metrics_traces": {
+          "state": "answered",
+          "value": [
+            "health"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "pii_masking": {
+          "state": "answered",
+          "value": true,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "operations": {
+      "mode": "detailed",
+      "answers": {
+        "deploy": {
+          "state": "answered",
+          "value": "Run locally, no remote deploy.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "ci_cd": {
+          "state": "answered",
+          "value": "ci_only",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "incident_response": {
+          "state": "answered",
+          "value": "none",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "compliance": {
+      "mode": "detailed",
+      "answers": {
+        "regimes": {
+          "state": "answered",
+          "value": [
+            "ada"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "constraints": {
+      "mode": "detailed",
+      "answers": {
+        "forced_tech": {
+          "state": "answered",
+          "value": "iOS native (Swift / SwiftUI).",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "forbidden_tech": {
+          "state": "answered",
+          "value": "React Native, Flutter.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "hosting": {
+          "state": "answered",
+          "value": "local",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "timeline": {
+          "state": "answered",
+          "value": "No deadline \u2014 a personal project.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "budget": {
+          "state": "answered",
+          "value": "No paid services.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    }
+  },
+  "review": {
+    "followups_answered": {},
+    "followups_deferred": []
+  }
+}

@@ -1,0 +1,450 @@
+{
+  "answers_schema_version": "1.0",
+  "wizard_version": "0.1.0",
+  "data_version": "0.1.0",
+  "claude_code_target_version": "1.x",
+  "started_at": "2026-05-05T10:00:00.000Z",
+  "last_modified_at": "2026-05-05T10:00:00.000Z",
+  "project_slug": "exif-photo-renamer",
+  "quality_bar": "personal",
+  "preflight": {
+    "claude_code_attested": true,
+    "attested_at": "2026-05-05T10:00:00.000Z"
+  },
+  "phases": {
+    "vision": {
+      "mode": "detailed",
+      "answers": {
+        "pitch": {
+          "state": "answered",
+          "value": "Rename JPEG and HEIC photos in a directory to YYYYMMDD-HHMM based on the EXIF capture timestamp.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "problem": {
+          "state": "answered",
+          "value": "My camera dumps files like IMG_4521.JPG with no useful sort order. I want stable date-based names so chronological browsing works in any tool.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "success_criteria": {
+          "state": "answered",
+          "value": [
+            "Pointing the tool at a folder of mixed-camera shots produces consistent date-prefixed filenames.",
+            "Photos without an EXIF timestamp are flagged, not silently renamed.",
+            "Running the tool twice on the same folder is a no-op."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "quality_bar": {
+          "state": "answered",
+          "value": "personal",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "audience": {
+      "mode": "detailed",
+      "answers": {
+        "who": {
+          "state": "answered",
+          "value": "Me, after a photography weekend.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "scale": {
+          "state": "answered",
+          "value": "solo",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "devices": {
+          "state": "answered",
+          "value": [
+            "desktop"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "accessibility": {
+          "state": "answered",
+          "value": "best_effort",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "internationalisation": {
+          "state": "answered",
+          "value": false,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "technical_literacy": {
+          "state": "answered",
+          "value": "technical",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "form_factor": {
+      "mode": "detailed",
+      "answers": {
+        "factors": {
+          "state": "answered",
+          "value": [
+            "cli"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "primary_factor": {
+          "state": "answered",
+          "value": "cli",
+          "answered_at": "2026-05-05T10:00:00.000Z",
+          "rationale": "A one-shot script I run when I dump a card from the camera; a CLI is the most ergonomic shape."
+        },
+        "delivery": {
+          "state": "answered",
+          "value": "source",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "features": {
+      "mode": "detailed",
+      "answers": {
+        "must_have": {
+          "state": "answered",
+          "value": [
+            "Rename based on EXIF DateTimeOriginal.",
+            "Skip files without EXIF.",
+            "Dry-run mode that prints what would happen."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "should_have": {
+          "state": "answered",
+          "value": [
+            "Handle HEIC alongside JPEG.",
+            "Optional collision suffix (-1, -2)."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "nice_to_have": {
+          "state": "answered",
+          "value": [
+            "Recurse into subdirectories."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "killer_feature": {
+          "state": "answered",
+          "value": "A single command with no flags does the right thing.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_input": {
+      "mode": "detailed",
+      "answers": {
+        "sources": {
+          "state": "answered",
+          "value": "JPEG and HEIC files passed as positional arguments or globbed via shell.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "formats": {
+          "state": "answered",
+          "value": [
+            "JPEG",
+            "HEIC"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "volume": {
+          "state": "answered",
+          "value": "trickle",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "frequency": {
+          "state": "answered",
+          "value": "ondemand",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_process": {
+      "mode": "detailed",
+      "answers": {
+        "transforms": {
+          "state": "answered",
+          "value": "Validate inputs and store the result.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "scheduling": {
+          "state": "answered",
+          "value": "ondemand",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "idempotency": {
+          "state": "answered",
+          "value": true,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_exchange": {
+      "mode": "detailed",
+      "answers": {
+        "protocols": {
+          "state": "answered",
+          "value": "No external integrations.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "sync_vs_async": {
+          "state": "answered",
+          "value": "sync",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "retry_policy": {
+          "state": "answered",
+          "value": "fail_fast",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_store": {
+      "mode": "detailed",
+      "answers": {
+        "storage_type": {
+          "state": "answered",
+          "value": "Modifies file names in place. No database.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "retention": {
+          "state": "answered",
+          "value": "ephemeral",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "encryption_at_rest": {
+          "state": "answered",
+          "value": false,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "backup": {
+          "state": "answered",
+          "value": "none",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_output": {
+      "mode": "detailed",
+      "answers": {
+        "outputs": {
+          "state": "answered",
+          "value": "Console output listing each rename; a final summary line.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "channels": {
+          "state": "answered",
+          "value": [
+            "ui"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "realtime_or_batch": {
+          "state": "answered",
+          "value": "realtime",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "validation": {
+      "mode": "detailed",
+      "answers": {
+        "strategy": {
+          "state": "answered",
+          "value": "Type-check on entry; reject empty mandatory fields with an inline message.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "enforcement_point": {
+          "state": "answered",
+          "value": [
+            "client",
+            "domain"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "failure_response": {
+          "state": "answered",
+          "value": "reject",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "error_handling": {
+      "mode": "detailed",
+      "answers": {
+        "taxonomy": {
+          "state": "answered",
+          "value": "Bad input \u2192 reject inline. Missing dependency \u2192 fail loudly. Unexpected exceptions \u2192 log and surface a generic 'Something went wrong, please retry'.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "error_ux": {
+          "state": "answered",
+          "value": "toast",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "critical_alerts": {
+          "state": "answered",
+          "value": "log",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "logging_observability": {
+      "mode": "detailed",
+      "answers": {
+        "logs": {
+          "state": "answered",
+          "value": "Application events at INFO; errors with stack at ERROR; structured JSON to stdout.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "log_format": {
+          "state": "answered",
+          "value": "structured",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "metrics_traces": {
+          "state": "answered",
+          "value": [
+            "health"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "pii_masking": {
+          "state": "answered",
+          "value": true,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "operations": {
+      "mode": "detailed",
+      "answers": {
+        "deploy": {
+          "state": "answered",
+          "value": "Run locally, no remote deploy.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "ci_cd": {
+          "state": "answered",
+          "value": "ci_only",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "incident_response": {
+          "state": "answered",
+          "value": "none",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "compliance": {
+      "mode": "detailed",
+      "answers": {
+        "regimes": {
+          "state": "answered",
+          "value": [
+            "none"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "constraints": {
+      "mode": "detailed",
+      "answers": {
+        "forced_tech": {
+          "state": "answered",
+          "value": "Python with click for argument parsing.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "forbidden_tech": {
+          "state": "answered",
+          "value": "",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "hosting": {
+          "state": "answered",
+          "value": "local",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "timeline": {
+          "state": "answered",
+          "value": "No deadline \u2014 a personal project.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "budget": {
+          "state": "answered",
+          "value": "No paid services.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    }
+  },
+  "review": {
+    "followups_answered": {},
+    "followups_deferred": []
+  }
+}
