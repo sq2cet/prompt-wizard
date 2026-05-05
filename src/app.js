@@ -751,24 +751,34 @@
     const KEY_CFG   = "prompt-wizard:ai-config:v1";
     const KEY_USAGE = "prompt-wizard:ai-usage:v1";
 
+    // V2.8: per-million-token rates (USD) used by estimateCostUsd. These are
+    // ballparks for the cost meter — for billing accuracy use the Anthropic
+    // dashboard. Wizard renders them with an explicit "(estimate)" label so
+    // users don't read these as authoritative.
     const MODELS = [
       {
         id: "claude-opus-4-7",
         label: "Claude Opus 4.7",
         per_session_cost: "≈ $1 – $2 per review session",
         description: "Highest quality. Best for nuanced cross-field analysis.",
+        cost_per_million_input:  15.0,
+        cost_per_million_output: 75.0,
       },
       {
         id: "claude-sonnet-4-6",
         label: "Claude Sonnet 4.6",
         per_session_cost: "≈ $0.25 – $0.50 per review session",
         description: "Balance of quality and cost. Good default if Opus is too expensive.",
+        cost_per_million_input:  3.0,
+        cost_per_million_output: 15.0,
       },
       {
         id: "claude-haiku-4-5",
         label: "Claude Haiku 4.5",
         per_session_cost: "≈ $0.05 – $0.10 per review session",
         description: "Cheapest and fastest. Less depth on subtle ambiguities.",
+        cost_per_million_input:  0.80,
+        cost_per_million_output: 4.0,
       },
     ];
 
@@ -857,6 +867,28 @@
     }
 
     /**
+     * Rough USD-equivalent for the given token counts under a model. Returns
+     * a number in dollars (e.g. 0.27 = 27 cents). For the running meter we
+     * pick the *current* model rates — accurate when the user hasn't
+     * switched mid-session; off when they have. Surfacing the model name +
+     * "estimate" label keeps the user honest about the source.
+     */
+    function estimateCostUsd(inputTokens, outputTokens, modelId) {
+      const m = modelInfo(modelId);
+      const inRate  = (m.cost_per_million_input  | 0) || m.cost_per_million_input  || 0;
+      const outRate = (m.cost_per_million_output | 0) || m.cost_per_million_output || 0;
+      const usd = (inputTokens  * inRate)  / 1e6
+                + (outputTokens * outRate) / 1e6;
+      return Math.max(0, usd);
+    }
+
+    function formatUsd(n) {
+      if (!isFinite(n) || n <= 0) return "$0.00";
+      if (n < 0.01) return "<$0.01";
+      return "$" + n.toFixed(2);
+    }
+
+    /**
      * Validate an API key by calling the Anthropic Messages API with the
      * smallest possible payload. Resolves to { ok, model?, status?, error? }.
      * Uses anthropic-dangerous-direct-browser-access: true to satisfy CORS.
@@ -901,6 +933,7 @@
       hasConsent, recordConsent,
       getUsage, addUsage, resetUsage,
       modelInfo, validateKey,
+      estimateCostUsd, formatUsd,
     };
   })();
 
@@ -3154,6 +3187,9 @@
         atCap ||
         (iterCount > 0 && pending === (last ? (last.issues || []).length : 0));
 
+      const usdEstimate = AISettings.formatUsd(
+        AISettings.estimateCostUsd(usage.input_tokens | 0, usage.output_tokens | 0, cfg.model)
+      );
       const headerRow = e("div", { class: "ai-review-head" }, [
         e("h2", null, "AI review"),
         e("div", { class: "ai-review-meta" }, [
@@ -3164,6 +3200,7 @@
                 " · Total: ",
                 String(usage.input_tokens | 0), " in / ",
                 String(usage.output_tokens | 0), " out tokens",
+                " · ", usdEstimate, " (estimate)",
               ])
             : e("span", { class: "muted" },
                 "No API key configured. Click Get AI review to set one up."),
@@ -3860,7 +3897,10 @@
             }),
           ]),
 
-          // Cost meter
+          // Cost meter — V2.8: surface USD-equivalent estimate alongside
+          // the raw token counts. Rates are per-million-token ballparks
+          // declared on each MODELS entry; the user sees an explicit
+          // "(estimate)" label so they don't read this as billing.
           usage && usage.calls > 0
             ? e("div", { class: "card settings-section" }, [
                 e("h2", null, "Usage since key was set"),
@@ -3868,6 +3908,20 @@
                   "Started ", e("code", null, usage.since || "(unknown)"), " · ",
                   String(usage.calls), " call" + (usage.calls === 1 ? "" : "s"), " · ",
                   String(usage.input_tokens), " input + ", String(usage.output_tokens), " output tokens.",
+                ]),
+                e("p", null, [
+                  e("strong", null, "Estimated cost: "),
+                  AISettings.formatUsd(
+                    AISettings.estimateCostUsd(
+                      usage.input_tokens | 0,
+                      usage.output_tokens | 0,
+                      formModel
+                    )
+                  ),
+                  e("span", { class: "muted" }, [
+                    " (rates for ", e("code", null, formModel),
+                    "; for billing accuracy use the Anthropic dashboard)",
+                  ]),
                 ]),
               ])
             : null,

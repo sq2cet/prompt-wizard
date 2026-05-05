@@ -1,0 +1,546 @@
+{
+  "answers_schema_version": "1.0",
+  "wizard_version": "0.1.0",
+  "data_version": "0.1.0",
+  "claude_code_target_version": "1.x",
+  "started_at": "2026-05-05T10:00:00.000Z",
+  "last_modified_at": "2026-05-05T10:00:00.000Z",
+  "project_slug": "expense-tracker-with-review",
+  "quality_bar": "personal",
+  "preflight": {
+    "claude_code_attested": true,
+    "attested_at": "2026-05-05T10:00:00.000Z"
+  },
+  "phases": {
+    "vision": {
+      "mode": "detailed",
+      "answers": {
+        "pitch": {
+          "state": "answered",
+          "value": "A personal expense tracker for one user, running in their own browser with localStorage.",
+          "answered_at": "2026-05-05T14:01:30Z"
+        },
+        "problem": {
+          "state": "answered",
+          "value": "I lose track of small recurring expenses and want a quick way to categorise them and see where the money goes each month.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "success_criteria": {
+          "state": "answered",
+          "value": [
+            "I can add an expense in under 10 seconds.",
+            "I can see this month's total split by category at a glance.",
+            "I can export a CSV of any month for my records."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "quality_bar": {
+          "state": "answered",
+          "value": "personal",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "audience": {
+      "mode": "detailed",
+      "answers": {
+        "who": {
+          "state": "answered",
+          "value": "Just me. I am the only user.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "scale": {
+          "state": "answered",
+          "value": "solo",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "devices": {
+          "state": "answered",
+          "value": [
+            "desktop",
+            "phone"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "accessibility": {
+          "state": "answered",
+          "value": "best_effort",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "internationalisation": {
+          "state": "answered",
+          "value": false,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "technical_literacy": {
+          "state": "answered",
+          "value": "casual",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "form_factor": {
+      "mode": "detailed",
+      "answers": {
+        "factors": {
+          "state": "answered",
+          "value": [
+            "web",
+            "api"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "primary_factor": {
+          "state": "answered",
+          "value": "web",
+          "answered_at": "2026-05-05T10:00:00.000Z",
+          "rationale": "Single-page web app is what I will use day to day; the embedded API is just for the front-end to call."
+        },
+        "delivery": {
+          "state": "answered",
+          "value": "source",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "features": {
+      "mode": "detailed",
+      "answers": {
+        "must_have": {
+          "state": "answered",
+          "value": [
+            "Add an expense (amount, date, category, note).",
+            "List expenses for a chosen month.",
+            "Show a monthly total per category."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "should_have": {
+          "state": "answered",
+          "value": [
+            "CSV export.",
+            "Recurring-expense template."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "nice_to_have": {
+          "state": "answered",
+          "value": [
+            "Charts of yearly trends.",
+            "Multi-currency support."
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "killer_feature": {
+          "state": "answered",
+          "value": "Adding an expense feels as fast as sending a chat message.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_input": {
+      "mode": "detailed",
+      "answers": {
+        "sources": {
+          "state": "answered",
+          "value": "I type expenses into a form.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "formats": {
+          "state": "answered",
+          "value": [
+            "form-input"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "volume": {
+          "state": "answered",
+          "value": "trickle",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "frequency": {
+          "state": "answered",
+          "value": "ondemand",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_process": {
+      "mode": "detailed",
+      "answers": {
+        "transforms": {
+          "state": "answered",
+          "value": "Validate inputs and store the result.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "scheduling": {
+          "state": "answered",
+          "value": "ondemand",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "idempotency": {
+          "state": "answered",
+          "value": true,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_exchange": {
+      "mode": "detailed",
+      "answers": {
+        "protocols": {
+          "state": "answered",
+          "value": "No external integrations.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "sync_vs_async": {
+          "state": "answered",
+          "value": "sync",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "retry_policy": {
+          "state": "answered",
+          "value": "fail_fast",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_store": {
+      "mode": "detailed",
+      "answers": {
+        "storage_type": {
+          "state": "answered",
+          "value": "Local SQLite database stored under the project directory.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "retention": {
+          "state": "answered",
+          "value": "forever",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "encryption_at_rest": {
+          "state": "answered",
+          "value": false,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "backup": {
+          "state": "answered",
+          "value": "none",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "data_output": {
+      "mode": "detailed",
+      "answers": {
+        "outputs": {
+          "state": "answered",
+          "value": "An on-screen monthly summary plus a CSV export button.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "channels": {
+          "state": "answered",
+          "value": [
+            "ui",
+            "file"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "realtime_or_batch": {
+          "state": "answered",
+          "value": "realtime",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "validation": {
+      "mode": "detailed",
+      "answers": {
+        "strategy": {
+          "state": "answered",
+          "value": "Type-check on entry; reject empty mandatory fields with an inline message.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "enforcement_point": {
+          "state": "answered",
+          "value": [
+            "client",
+            "domain"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "failure_response": {
+          "state": "answered",
+          "value": "reject",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "error_handling": {
+      "mode": "detailed",
+      "answers": {
+        "taxonomy": {
+          "state": "answered",
+          "value": "Bad input \u2192 reject inline. Missing dependency \u2192 fail loudly. Unexpected exceptions \u2192 log and surface a generic 'Something went wrong, please retry'.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "error_ux": {
+          "state": "answered",
+          "value": "toast",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "critical_alerts": {
+          "state": "answered",
+          "value": "log",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "logging_observability": {
+      "mode": "detailed",
+      "answers": {
+        "logs": {
+          "state": "answered",
+          "value": "Application events at INFO; errors with stack at ERROR; structured JSON to stdout.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "log_format": {
+          "state": "answered",
+          "value": "structured",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "metrics_traces": {
+          "state": "answered",
+          "value": [
+            "health"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "pii_masking": {
+          "state": "answered",
+          "value": true,
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "operations": {
+      "mode": "detailed",
+      "answers": {
+        "deploy": {
+          "state": "answered",
+          "value": "Run locally, no remote deploy.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "ci_cd": {
+          "state": "answered",
+          "value": "ci_only",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "incident_response": {
+          "state": "answered",
+          "value": "none",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "compliance": {
+      "mode": "detailed",
+      "answers": {
+        "regimes": {
+          "state": "answered",
+          "value": [
+            "none"
+          ],
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    },
+    "constraints": {
+      "mode": "detailed",
+      "answers": {
+        "forced_tech": {
+          "state": "answered",
+          "value": "",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "forbidden_tech": {
+          "state": "answered",
+          "value": "No cloud services.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "hosting": {
+          "state": "answered",
+          "value": "local",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "timeline": {
+          "state": "answered",
+          "value": "No deadline \u2014 a personal project.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        },
+        "budget": {
+          "state": "answered",
+          "value": "No paid services.",
+          "answered_at": "2026-05-05T10:00:00.000Z"
+        }
+      },
+      "phase_comment": "",
+      "stale_since": null,
+      "stale_reason": null,
+      "user_acknowledged_stale": false
+    }
+  },
+  "review": {
+    "followups_answered": {},
+    "followups_deferred": []
+  },
+  "ai_review": {
+    "iterations": [
+      {
+        "timestamp": "2026-05-05T14:00:00Z",
+        "model": "claude-opus-4-7",
+        "input_tokens": 4250,
+        "output_tokens": 720,
+        "ready_to_generate": false,
+        "summary": "Several clarifications needed before the build can proceed coherently.",
+        "issues": [
+          {
+            "id": "iss-1",
+            "kind": "ambiguity",
+            "phase_id": "vision",
+            "question_id": "pitch",
+            "comment": "The pitch could mean a single-user desktop tool or a multi-user hosted service.",
+            "suggestion": "A personal expense tracker for one user, running in their own browser with localStorage.",
+            "severity": "warning"
+          },
+          {
+            "id": "iss-2",
+            "kind": "conflict",
+            "phase_id": "data_input",
+            "question_id": "failure_response",
+            "comment": "Validation policy is sanitise silently, but the phase comment says reject duplicates with a summary.",
+            "suggestion": "Switch failure_response to reject so the comment matches the structured answer.",
+            "related": [
+              {
+                "phase_id": "data_input"
+              }
+            ],
+            "severity": "conflict"
+          },
+          {
+            "id": "iss-3",
+            "kind": "duplicate",
+            "phase_id": "data_output",
+            "comment": "The free-text under data_output.phase_comment is identical to the one under data_input.phase_comment.",
+            "suggestion": "Drop the copy under data_output; the input phase is the right place.",
+            "related": [
+              {
+                "phase_id": "data_input"
+              }
+            ],
+            "severity": "info"
+          },
+          {
+            "id": "iss-4",
+            "kind": "missing_context",
+            "phase_id": "data_store",
+            "question_id": "retention_period",
+            "comment": "No retention period given. The build needs a number, not a vague intent.",
+            "suggestion": "Default to keeping data forever (single-user, local-first).",
+            "severity": "warning"
+          }
+        ],
+        "user_responses": {
+          "iss-1": {
+            "kind": "accept",
+            "applied_value": "A personal expense tracker for one user, running in their own browser with localStorage.",
+            "at": "2026-05-05T14:01:30Z"
+          },
+          "iss-2": {
+            "kind": "change",
+            "applied_value": "reject",
+            "at": "2026-05-05T14:02:15Z"
+          },
+          "iss-3": {
+            "kind": "reject",
+            "at": "2026-05-05T14:02:50Z"
+          },
+          "iss-4": {
+            "kind": "defer_to_claude",
+            "at": "2026-05-05T14:03:10Z"
+          }
+        }
+      },
+      {
+        "timestamp": "2026-05-05T14:05:00Z",
+        "model": "claude-opus-4-7",
+        "input_tokens": 4900,
+        "output_tokens": 250,
+        "ready_to_generate": true,
+        "summary": "All previously surfaced issues addressed. Ready to generate.",
+        "issues": [],
+        "user_responses": {}
+      }
+    ],
+    "ready_to_generate": true,
+    "stopped_by": "claude_ready",
+    "total_input_tokens": 9150,
+    "total_output_tokens": 970
+  }
+}

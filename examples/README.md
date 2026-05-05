@@ -4,11 +4,13 @@ Each subdirectory holds a realistic, end-to-end wizard run for a different form 
 
 | Folder                          | Form factor      | One-line idea                                                              |
 |---------------------------------|------------------|----------------------------------------------------------------------------|
-| `web-expense-tracker/`          | Web app          | A personal expense tracker with categories and monthly summaries.          |
-| `cli-photo-renamer/`            | CLI tool         | Rename photos to YYYYMMDD-HHMM based on EXIF timestamps.                   |
-| `mobile-habit-tracker/`         | Mobile app       | Habit tracker for iPhone with a home-screen widget.                        |
-| `ml-photo-classifier/`          | ML pipeline      | Classify a personal photo library into people / places / things.           |
-| `embedded-esp32-sensor/`        | Embedded / IoT   | ESP32 temperature sensor that POSTs readings to a webhook every 5 minutes. |
+| `web-expense-tracker/`             | Web app          | A personal expense tracker with categories and monthly summaries.          |
+| `cli-photo-renamer/`               | CLI tool         | Rename photos to YYYYMMDD-HHMM based on EXIF timestamps.                   |
+| `mobile-habit-tracker/`            | Mobile app       | Habit tracker for iPhone with a home-screen widget.                        |
+| `ml-photo-classifier/`             | ML pipeline      | Classify a personal photo library into people / places / things.           |
+| `embedded-esp32-sensor/`           | Embedded / IoT   | ESP32 temperature sensor that POSTs readings to a webhook every 5 minutes. |
+| `contacts-list-vanilla-web/`       | Web app (V2.0)   | Contacts CRUD — regression carrier for R1–R8 from the V1 user-test review. |
+| `web-expense-tracker-with-review/` | Web app (V2.7)   | Same domain as `web-expense-tracker/` but with a populated `ai_review` (2 iterations, all 6 issue kinds, accept / change / reject / defer mix). Locks V2.7's `notes/ai-review.md` + open-questions emission. |
 
 Each directory contains:
 
