@@ -243,6 +243,33 @@
       _saveQuiet();
     }
 
+    /**
+     * Defensive periodic save (V2.0 R1 mitigation).
+     *
+     * The user-test bundle showed a `must_have` list arriving in storage with
+     * 5 items where 9 had been typed; the last item was cut mid-word at 40
+     * chars. Code-walking V1 did not surface a reproducible cause. The most
+     * plausible candidate remaining is a browser-specific event-ordering
+     * scenario (IME composition, paste race) where `oninput` did not fire
+     * for the last segment of typing before another action triggered a
+     * re-render.
+     *
+     * As a defensive measure independent of root-cause, run a low-frequency
+     * periodic flush of state. If the in-memory state was updated since the
+     * last sync, write it now. Catches any path where a debounced save
+     * timer was somehow lost. Cost is one localStorage write every 5 s while
+     * the wizard is active and modified; negligible.
+     */
+    let lastSyncedModifiedAt = null;
+    function _periodicCatchUp() {
+      if (state && state.last_modified_at && state.last_modified_at !== lastSyncedModifiedAt) {
+        if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+        _saveQuiet();
+        lastSyncedModifiedAt = state.last_modified_at;
+      }
+    }
+    setInterval(_periodicCatchUp, 5000);
+
     function reset() {
       state = makeFreshState(Data.questionTaxonomy);
       Storage.clear();
@@ -948,6 +975,12 @@
         value: a.value || "",
         oninput: function (ev) { setText(phaseId, q, ev.currentTarget.value); },
         onblur: function () { State.flushPending(); },
+        oncompositionend: function (ev) {
+          // IME committed a composition — re-read the input value and flush,
+          // in case the trailing characters of the composition didn't fire input.
+          setText(phaseId, q, ev.currentTarget.value);
+          State.flushPending();
+        },
       }, _commonAttrs(q, guidanceId)));
     }
 
@@ -958,6 +991,10 @@
         value: a.value || "",
         oninput: function (ev) { setText(phaseId, q, ev.currentTarget.value); },
         onblur: function () { State.flushPending(); },
+        oncompositionend: function (ev) {
+          setText(phaseId, q, ev.currentTarget.value);
+          State.flushPending();
+        },
       }, _commonAttrs(q, guidanceId)));
     }
 
@@ -976,6 +1013,20 @@
 
     function renderList(phaseId, q, a) {
       const text = Array.isArray(a.value) ? a.value.join("\n") : (a.value || "");
+
+      // Centralised parse + commit so input / paste / compositionend share
+      // the same code path. R1 mitigation — see State._periodicCatchUp comment.
+      function commitListFromTextarea(textareaEl) {
+        const v = textareaEl.value;
+        const lines = v.split("\n").map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
+        State.deferredCommit(function (s) {
+          const aa = ensureAnswerEntry(s, phaseId, q.id);
+          aa.value = lines;
+          aa.state = lines.length === 0 ? "blank" : "answered";
+          aa.answered_at = new Date().toISOString();
+        });
+      }
+
       return e("div", null, [
         e("textarea", {
           class: "q-input q-textarea",
@@ -983,16 +1034,15 @@
           placeholder: "One item per line",
           "aria-label": q.text,
           value: text,
-          oninput: function (ev) {
-            const v = ev.currentTarget.value;
-            const lines = v.split("\n").map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
-            State.deferredCommit(function (s) {
-              const aa = ensureAnswerEntry(s, phaseId, q.id);
-              aa.value = lines;
-              aa.state = lines.length === 0 ? "blank" : "answered";
-              aa.answered_at = new Date().toISOString();
-            });
+          oninput: function (ev) { commitListFromTextarea(ev.currentTarget); },
+          // Paste fires before the input event applies the pasted content;
+          // schedule an extra commit on the next tick to catch any browser
+          // path where input doesn't fire immediately after paste.
+          onpaste: function (ev) {
+            const target = ev.currentTarget;
+            setTimeout(function () { commitListFromTextarea(target); }, 0);
           },
+          oncompositionend: function (ev) { commitListFromTextarea(ev.currentTarget); State.flushPending(); },
           onblur: function () { State.flushPending(); },
         }),
         e("p", { class: "muted q-hint" }, "One item per line."),
@@ -1359,6 +1409,12 @@
             value: ps.phase_comment || "",
             oninput: onPhaseCommentInput,
             onblur: function () { State.flushPending(); },
+            // Defensive R1 mitigation — see State._periodicCatchUp comment.
+            oncompositionend: function (ev) { onPhaseCommentInput(ev); State.flushPending(); },
+            onpaste: function (ev) {
+              const target = ev.currentTarget;
+              setTimeout(function () { onPhaseCommentInput({ currentTarget: target }); }, 0);
+            },
             placeholder: "Notes, edge cases, things you're not sure about…",
           }),
         ]),
