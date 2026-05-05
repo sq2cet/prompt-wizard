@@ -5,6 +5,76 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-05-05
+
+The local-Claude-Code release. v2.0.0 required an Anthropic API key for the
+AI review; v2.1.0 adds a second backend that talks to your locally-installed
+`claude` CLI through a small bridge you run alongside the wizard. No key, no
+hosted-API spend — billed via your existing Claude Code setup.
+
+### Added
+
+- **Local Claude Code backend** (`Settings → AI review backend`). The wizard
+  POSTs to a tiny `wizard-bridge.js` (Node, vanilla, ~250 lines, zero npm
+  dependencies) which spawns `claude -p ... --output-format json` under the
+  hood and returns a Messages-API-shaped envelope. The wizard's parsing path
+  (issue list, banners, Accept/Change/Reject, iteration loop) is unchanged.
+- **Bundled bridge script** — `bridge/wizard-bridge.js` is committed in the
+  repo and JSON-string-encoded into the built HTML, so a Settings modal
+  button **Download wizard-bridge.js** writes it locally without any
+  separate download. Run with `node wizard-bridge.js` (default port 4179),
+  Ctrl-C to stop.
+- **Bridge UI in Settings** — the backend radio toggles between
+  "Anthropic API" and "Local Claude Code (bridge)". Bridge mode shows a
+  4-step setup checklist (verify Node 18+ → Download script → run it →
+  Test bridge), a configurable bridge URL field, and a **Test bridge**
+  button that probes `GET /health` and reports the bridge's version + port
+  inline.
+- **Backend-aware AI panel header** — the Review screen header now shows
+  whether the active backend is `via Anthropic API` (with token + USD
+  meter) or `via wizard-bridge (local Claude Code)` (no cost meter, since
+  billing happens via Claude Code).
+- **`AISettings.validateBridge(url)`** helper — reusable from anywhere; the
+  Settings Test button uses it. Returns `{ ok, version, port }` or
+  `{ ok: false, error }` with a contextual error message ("Is
+  `node wizard-bridge.js` running?").
+
+### Changed
+
+- `WIZARD_VERSION` bumped to `2.1.0`. Build artefact size grew from 363 KB
+  to 386 KB (+23 KB) — the bundled bridge source plus the Settings modal
+  expansion.
+- `Claude.review(state, taxonomy)` no longer assumes the Anthropic API. It
+  reads `cfg.backend` and routes to either `https://api.anthropic.com/v1/messages`
+  or `<bridge_url>/review`. Both paths return the same envelope so the
+  iteration loop stays backend-agnostic.
+- The Review screen's "Get AI review" button now opens Settings whenever
+  the **active** backend is unconfigured — for `api` that's "no key", for
+  `bridge` that's "no bridge URL" (rare; default is set).
+- `AI settings` link is always visible on the AI review panel (V2.0.0 hid
+  it when no key was set — confusing once a non-API backend was an option).
+
+### Fixed
+
+- `runAIReview` no longer hard-fails on the no-key check when the user has
+  configured the local-bridge backend instead. (Previously the button
+  appeared to "do nothing" for users who expected local Claude Code to
+  satisfy the AI review requirement — V2.0.0 had no path that bypassed the
+  API key.)
+
+### Build & test
+
+- New `TEMPLATE_RAW_TEXT_INPUTS` entry: `bridge/wizard-bridge.js` →
+  `<script id="data-bridge-script" type="application/json">`. Same
+  pattern V2.0 used for the AI review system prompt.
+- `git add bridge/` is required before `python build.py scan` so the
+  sanitisation gate covers the new directory.
+- All 7 snapshot examples re-baked for the v2.1.0 wizard-version footer.
+- The bridge itself is **not** in CI — same testing posture as V2.4's
+  Anthropic API path. The bridge is user-tested via the Settings modal's
+  Test button, which exercises the full HTTP path including CORS from
+  `file://` to `localhost`.
+
 ## [2.0.0] — 2026-05-05
 
 The interactive AI review release. v1.0.0 collected structured answers from

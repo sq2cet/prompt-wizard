@@ -61,6 +61,26 @@ The ZIP contains 27 files arranged for Claude Code to read on demand:
 See the worked [examples](examples/README.md) for end-to-end runs covering web, CLI, mobile,
 ML, and embedded form factors.
 
+## Optional AI review (v2.0+)
+
+The Review screen has a **Get AI review** button that asks Claude to scan your answers as a
+whole and surface ambiguities, conflicts, duplicates, misplaced content, redundancy, and
+missing context inline next to the questions they target. Each issue gets four actions:
+**Accept** Claude's suggestion, **Change** (write your own), **Reject**, or (for ambiguities
+and missing context) **I don't know — Claude, you choose**. The full back-and-forth ships in
+the bundle as `notes/ai-review.md`. Two backends, pick either in Settings:
+
+- **Anthropic API** — needs your own [Anthropic API key](https://docs.claude.com/en/api/getting-started),
+  billed by Anthropic. Browser-direct — no servers.
+- **Local Claude Code (bridge)** *(v2.1+)* — uses your already-installed `claude` CLI. The
+  Settings modal's **Download wizard-bridge.js** button writes a small Node script next to
+  the wizard. Run `node wizard-bridge.js` in a terminal once per session, leave it running
+  on `localhost:4179`, and the wizard talks to it instead of the hosted API. No key, no
+  hosted-API spend — billed via your existing Claude Code setup.
+
+Both paths feed the same iteration loop (5 rounds max, configurable). Skipping AI review
+entirely is fine — the wizard generates a complete bundle without it.
+
 ## Repository conventions
 
 - All paths in documentation are relative to `$PROJECT_ROOT` (this directory).

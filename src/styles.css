@@ -333,6 +333,19 @@ button.danger-btn:hover {
 
 .settings-iter-input { max-width: 120px; }
 
+/* V2.1: bridge setup steps */
+.settings-bridge-steps {
+  margin: 8px 0 12px;
+  padding-left: 22px;
+}
+.settings-bridge-steps li { margin-bottom: 6px; }
+.settings-bridge-steps li code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
 .settings-consent {
   display: flex;
   align-items: flex-start;

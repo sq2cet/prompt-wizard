@@ -300,6 +300,7 @@ TEMPLATE_FRAGMENT_INPUTS: dict[str, str] = {
 # data.
 TEMPLATE_RAW_TEXT_INPUTS: dict[str, str] = {
     "DATA_AI_SYSTEM_PROMPT": "src/data/ai/review-system-prompt.md",
+    "DATA_BRIDGE_SCRIPT":    "bridge/wizard-bridge.js",
 }
 
 # Vendored libraries that must be SHA-pinned. `build.py` refuses to bundle
@@ -309,7 +310,7 @@ VENDOR_DIRS: tuple[str, ...] = (
     "src/vendor/jszip",
 )
 
-WIZARD_VERSION = "2.0.0"  # Single source of truth; bumped per release.
+WIZARD_VERSION = "2.1.0"  # Single source of truth; bumped per release.
 
 
 def _git_short_sha() -> str:

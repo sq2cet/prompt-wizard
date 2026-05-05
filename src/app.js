@@ -36,6 +36,7 @@
       inconsistencyRules: readJsonScript("data-inconsistency-rules"),
       templateBindings:   readJsonScript("data-template-bindings"),
       aiSystemPrompt:     readJsonScript("data-ai-system-prompt") || "",
+      bridgeScript:       readJsonScript("data-bridge-script") || "",
       buildInfo:          readJsonScript("data-build-info") || {},
     };
   })();
@@ -786,6 +787,11 @@
       model: "claude-opus-4-7",
       max_iterations: 5,
       consent_at: null,
+      // V2.1: AI review backend.
+      //   "api"    — POST to api.anthropic.com (V2.0 default; needs an API key).
+      //   "bridge" — POST to a local wizard-bridge.js (uses local Claude Code; no key).
+      backend: "api",
+      bridge_url: "http://localhost:4179",
     };
 
     function _readLs(key) {
@@ -926,13 +932,46 @@
       }
     }
 
+    /**
+     * Probe a local bridge by hitting GET /health. Resolves to
+     *   { ok: true,  version, port } on success
+     *   { ok: false, error }         on any failure (connection, non-200, bad JSON).
+     * The wizard's "Test bridge" button surfaces the result inline.
+     */
+    async function validateBridge(url) {
+      const trimmed = String(url || "").replace(/\/$/, "");
+      if (!trimmed) return { ok: false, error: "Bridge URL is empty." };
+      let response;
+      try {
+        response = await fetch(trimmed + "/health", { method: "GET" });
+      } catch (err) {
+        return {
+          ok: false,
+          error:
+            "Could not reach " + trimmed + "/health: " +
+            (err && err.message ? err.message : String(err)) +
+            ". Is `node wizard-bridge.js` running?",
+        };
+      }
+      if (!response.ok) {
+        return { ok: false, status: response.status, error: "HTTP " + response.status + " from /health." };
+      }
+      let body;
+      try { body = await response.json(); }
+      catch (err) { return { ok: false, error: "Bridge /health did not return JSON: " + err.message }; }
+      if (!body || body.ok !== true || body.name !== "wizard-bridge") {
+        return { ok: false, error: "Endpoint at " + trimmed + " responded but is not the wizard-bridge (got: " + JSON.stringify(body).slice(0, 120) + ")." };
+      }
+      return { ok: true, version: body.version || "?", port: body.port || null };
+    }
+
     return {
       MODELS, DEFAULTS,
       getApiKey, setApiKey, clearApiKey, hasApiKey, maskApiKey,
       getConfig, setConfig,
       hasConsent, recordConsent,
       getUsage, addUsage, resetUsage,
-      modelInfo, validateKey,
+      modelInfo, validateKey, validateBridge,
       estimateCostUsd, formatUsd,
     };
   })();
@@ -1181,12 +1220,15 @@
      *   { ok: false, reason, error?, status? }  on failure.
      *
      * `iteration` is the record to push onto `state.ai_review.iterations`.
+     *
+     * V2.1: routes to either the Anthropic Messages API or a local
+     * `wizard-bridge.js` based on `ai_settings.backend`. The bridge returns
+     * an envelope with the same content[] tool_use shape, so the parsing
+     * path below is unchanged.
      */
     async function review(state, taxonomy) {
-      const key = AISettings.getApiKey();
-      if (!key) return { ok: false, reason: "no_key" };
-
       const cfg = AISettings.getConfig();
+      const backend = cfg.backend || "api";
       const model = cfg.model || AISettings.DEFAULTS.model;
       const systemPrompt = (Data && Data.aiSystemPrompt) || "";
 
@@ -1207,20 +1249,37 @@
       };
 
       let response;
+      let chosenEndpoint;
+      let chosenHeaders;
+
+      if (backend === "bridge") {
+        const baseUrl = (cfg.bridge_url || AISettings.DEFAULTS.bridge_url).replace(/\/$/, "");
+        chosenEndpoint = baseUrl + "/review";
+        chosenHeaders = { "Content-Type": "application/json" };
+      } else {
+        const key = AISettings.getApiKey();
+        if (!key) return { ok: false, reason: "no_key" };
+        chosenEndpoint = ENDPOINT;
+        chosenHeaders = {
+          "Content-Type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": ANTHROPIC_VERSION,
+          "anthropic-dangerous-direct-browser-access": "true",
+        };
+      }
+
       try {
-        response = await fetch(ENDPOINT, {
+        response = await fetch(chosenEndpoint, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": key,
-            "anthropic-version": ANTHROPIC_VERSION,
-            "anthropic-dangerous-direct-browser-access": "true",
-          },
+          headers: chosenHeaders,
           body: JSON.stringify(body),
         });
       } catch (err) {
+        const hint = backend === "bridge"
+          ? " — is `node wizard-bridge.js` running on " + (cfg.bridge_url || AISettings.DEFAULTS.bridge_url) + " ?"
+          : "";
         return { ok: false, reason: "network",
-                 error: (err && err.message) ? err.message : String(err) };
+                 error: ((err && err.message) ? err.message : String(err)) + hint };
       }
 
       if (!response.ok) {
@@ -1229,7 +1288,8 @@
           const errBody = await response.json();
           if (errBody && errBody.error && errBody.error.message) errMsg = errBody.error.message;
         } catch (_) {}
-        return { ok: false, reason: "api_error", status: response.status, error: errMsg };
+        return { ok: false, reason: backend === "bridge" ? "bridge_error" : "api_error",
+                 status: response.status, error: errMsg };
       }
 
       let payload;
@@ -1247,7 +1307,14 @@
       const usage = (payload && payload.usage) || {};
       const inputTokens  = (usage.input_tokens  | 0);
       const outputTokens = (usage.output_tokens | 0);
-      AISettings.addUsage(inputTokens, outputTokens);
+      // V2.1: only meter API-mode usage. In bridge mode the user is billed
+      // via Claude Code, not Anthropic API rates — bumping the meter would
+      // produce a misleading USD estimate in Settings. Per-iteration token
+      // counts are still stored on the iteration record (below) so the
+      // bundle's notes/ai-review.md keeps accurate per-call telemetry.
+      if (backend !== "bridge") {
+        AISettings.addUsage(inputTokens, outputTokens);
+      }
 
       // Assign client-side stable ids so V2.5 can key user_responses by id.
       const issuesIn = Array.isArray(tool.payload.issues) ? tool.payload.issues : [];
@@ -3047,8 +3114,15 @@
     }
 
     async function runAIReview() {
-      // No key → open Settings (same UX as the V2 plan's "first AI button click").
-      if (!AISettings.hasApiKey()) {
+      // V2.1: route to Settings when the active backend is unconfigured.
+      // - api backend: no API key set
+      // - bridge backend: no bridge URL set (defaults exist; only edge case)
+      const cfg = AISettings.getConfig();
+      const backend = cfg.backend || "api";
+      const needsConfig =
+        (backend === "api"    && !AISettings.hasApiKey()) ||
+        (backend === "bridge" && !(cfg.bridge_url || AISettings.DEFAULTS.bridge_url));
+      if (needsConfig) {
         openSettingsModal();
         return;
       }
@@ -3190,21 +3264,39 @@
       const usdEstimate = AISettings.formatUsd(
         AISettings.estimateCostUsd(usage.input_tokens | 0, usage.output_tokens | 0, cfg.model)
       );
+      // V2.1: backend-aware header. Bridge mode shows "via local Claude
+      // Code"; api mode shows the cumulative cost meter.
+      const backend = cfg.backend || "api";
+      const isBridge = backend === "bridge";
+      const configured = isBridge
+        ? !!(cfg.bridge_url || AISettings.DEFAULTS.bridge_url)
+        : hasKey;
+
+      const metaSpan = isBridge
+        ? e("span", { class: "muted" }, [
+            "via ", e("code", null, "wizard-bridge"),
+            " (local Claude Code)",
+            " · Model: ", e("code", null, cfg.model || AISettings.DEFAULTS.model),
+            " · Iteration ", String(iterCount), " / ", String(maxIters),
+            " · ", String(usage.input_tokens | 0), " in / ",
+            String(usage.output_tokens | 0), " out tokens",
+          ])
+        : (hasKey
+          ? e("span", { class: "muted" }, [
+              "via Anthropic API",
+              " · Model: ", e("code", null, cfg.model || AISettings.DEFAULTS.model),
+              " · Iteration ", String(iterCount), " / ", String(maxIters),
+              " · Total: ",
+              String(usage.input_tokens | 0), " in / ",
+              String(usage.output_tokens | 0), " out tokens",
+              " · ", usdEstimate, " (estimate)",
+            ])
+          : e("span", { class: "muted" },
+              "No API key configured. Click Get AI review to set one up — or pick the local-bridge backend in AI settings."));
+
       const headerRow = e("div", { class: "ai-review-head" }, [
         e("h2", null, "AI review"),
-        e("div", { class: "ai-review-meta" }, [
-          hasKey
-            ? e("span", { class: "muted" }, [
-                "Model: ", e("code", null, cfg.model || AISettings.DEFAULTS.model),
-                " · Iteration ", String(iterCount), " / ", String(maxIters),
-                " · Total: ",
-                String(usage.input_tokens | 0), " in / ",
-                String(usage.output_tokens | 0), " out tokens",
-                " · ", usdEstimate, " (estimate)",
-              ])
-            : e("span", { class: "muted" },
-                "No API key configured. Click Get AI review to set one up."),
-        ]),
+        e("div", { class: "ai-review-meta" }, [metaSpan]),
       ]);
 
       // Stopped-state notice. The user can resume (subject to cap) or click
@@ -3245,10 +3337,11 @@
               title: "Stop the review loop and proceed to Generate. Recorded as user_done in the bundle.",
               onclick: onUserDone }, "I'm done — generate now")
           : null,
-        hasKey
-          ? e("button", { type: "button", class: "link",
-              onclick: function () { openSettingsModal(); } }, "AI settings")
-          : null,
+        // V2.1: AI settings is always reachable from the panel — both
+        // backends benefit from quick access (re-test bridge, swap key,
+        // change model).
+        e("button", { type: "button", class: "link",
+            onclick: function () { openSettingsModal(); } }, "AI settings"),
       ]);
 
       const errorRow = aiError
@@ -3775,35 +3868,163 @@
       let formKey = AISettings.getApiKey() || "";
       let formModel = cfg.model || AISettings.DEFAULTS.model;
       let formMaxIter = cfg.max_iterations || AISettings.DEFAULTS.max_iterations;
+      let formBackend   = cfg.backend    || AISettings.DEFAULTS.backend;
+      let formBridgeUrl = cfg.bridge_url || AISettings.DEFAULTS.bridge_url;
       let consentApi = hadConsent;
       let consentLs  = hadConsent;
       let consentCost = hadConsent;
       let testStatus = null; // null | "validating" | { ok: true, model } | { ok: false, error }
+      let bridgeStatus = null; // null | "validating" | { ok: true, version, port } | { ok: false, error }
+
+      function downloadBridgeScript() {
+        const src = (Data && Data.bridgeScript) || "";
+        if (!src) {
+          window.alert("Bridge script is not bundled in this build. Try rebuilding the wizard.");
+          return;
+        }
+        const blob = new Blob([src], { type: "application/javascript;charset=utf-8" });
+        downloadBlob("wizard-bridge.js", blob);
+      }
 
       function rerender() {
         Renderer.clear(host);
         const allChecked = consentApi && consentLs && consentCost;
         const trimmed = formKey.trim();
         const showTestBtn = trimmed.length > 0;
+        const isApiBackend    = formBackend === "api";
+        const isBridgeBackend = formBackend === "bridge";
         // V2.3: allow saving preferences without an API key. When no key is
         // entered, settings are still persisted (model + max-iterations);
         // AI review stays in OFFLINE mode (the local rule-based engine).
         // Consent is only required when storing a key.
-        const canSave = trimmed.length === 0 ? true : (allChecked && hadConsent
-          ? true                       // consent already on file
-          : allChecked);
+        // V2.1 (bridge mode): no key needed, no consent gate — saving is
+        // always permitted.
+        const canSave = isBridgeBackend
+          ? true
+          : (trimmed.length === 0 ? true : (allChecked && hadConsent ? true : allChecked));
 
         host.appendChild(e("main", { class: "screen settings-screen", id: "app-main" }, [
           e("p", { class: "kicker" }, "Settings"),
           e("h1", null, "AI review configuration"),
           e("p", { class: "muted" }, [
-            "The wizard's AI review feature (coming online over V2.4–V2.6) sends your answers to ",
+            "The wizard's AI review can run two ways: against ",
             e("a", { href: "https://docs.claude.com/en/api/getting-started", target: "_blank", rel: "noopener noreferrer" }, "Anthropic's Claude API"),
-            ". Configure your API key here. Without one, the wizard still works fully — the AI review just stays disabled.",
+            " (needs an API key, billed by Anthropic), or via your locally-installed ",
+            e("a", { href: "https://docs.claude.com/en/docs/claude-code", target: "_blank", rel: "noopener noreferrer" }, "Claude Code"),
+            " through a small bridge you run alongside the wizard. Pick one below — without either, the wizard still works fully and the AI review stays disabled.",
           ]),
 
-          // API key
+          // V2.1: Backend picker
           e("div", { class: "card settings-section" }, [
+            e("h2", null, "AI review backend"),
+            e("div", { class: "q-options", role: "radiogroup", "aria-label": "AI review backend" }, [
+              e("label", { class: "q-radio" + (isApiBackend ? " is-active" : ""), for: "settings-backend-api" }, [
+                e("input", {
+                  type: "radio", id: "settings-backend-api", name: "settings-backend",
+                  value: "api", checked: isApiBackend,
+                  onchange: function () {
+                    formBackend = "api";
+                    bridgeStatus = null;
+                    rerender();
+                  },
+                }),
+                e("span", { class: "q-radio-body" }, [
+                  e("strong", null, "Anthropic API"),
+                  e("span", { class: "q-radio-desc" }, "Browser → api.anthropic.com directly. Needs your own API key. Billed by Anthropic."),
+                ]),
+              ]),
+              e("label", { class: "q-radio" + (isBridgeBackend ? " is-active" : ""), for: "settings-backend-bridge" }, [
+                e("input", {
+                  type: "radio", id: "settings-backend-bridge", name: "settings-backend",
+                  value: "bridge", checked: isBridgeBackend,
+                  onchange: function () {
+                    formBackend = "bridge";
+                    testStatus = null;
+                    rerender();
+                  },
+                }),
+                e("span", { class: "q-radio-body" }, [
+                  e("strong", null, "Local Claude Code (bridge)"),
+                  e("span", { class: "q-radio-desc" }, "Browser → wizard-bridge.js (Node) → claude CLI. Uses your existing Claude Code subscription / config. No API key needed."),
+                ]),
+              ]),
+            ]),
+          ]),
+
+          // V2.1: Bridge configuration (only when backend=bridge)
+          isBridgeBackend ? e("div", { class: "card settings-section" }, [
+            e("h2", null, "Local bridge"),
+            e("ol", { class: "settings-bridge-steps" }, [
+              e("li", null, [
+                e("strong", null, "Verify Node 18+ is installed: "),
+                "open a terminal and run ", e("code", null, "node --version"),
+                ". (Claude Code installs Node by default, so if ", e("code", null, "claude --version"),
+                " worked, this should too.)",
+              ]),
+              e("li", null, [
+                e("strong", null, "Download the bridge script: "),
+                "click the button below. Save it next to the wizard HTML file.",
+              ]),
+              e("li", null, [
+                e("strong", null, "Run it: "),
+                "in the terminal, ", e("code", null, "node wizard-bridge.js"),
+                ". Leave it running for the duration of your review session — Ctrl-C to stop.",
+              ]),
+              e("li", null, [
+                e("strong", null, "Test the connection: "),
+                "click Test bridge below. You should see ✓ Connected.",
+              ]),
+            ]),
+            e("div", { class: "settings-actions-row" }, [
+              e("button", { type: "button", onclick: downloadBridgeScript },
+                "Download wizard-bridge.js"),
+            ]),
+            e("p", null, [
+              e("label", { for: "settings-bridge-url" }, e("strong", null, "Bridge URL")),
+            ]),
+            e("input", {
+              type: "text",
+              id: "settings-bridge-url",
+              class: "q-input",
+              value: formBridgeUrl,
+              oninput: function (ev) {
+                formBridgeUrl = ev.currentTarget.value;
+                bridgeStatus = null;
+              },
+              "aria-label": "Bridge URL",
+              autocomplete: "off",
+              spellcheck: "false",
+            }),
+            e("p", { class: "muted q-hint" }, [
+              "Default ", e("code", null, "http://localhost:4179"),
+              ". Pass a different port to ", e("code", null, "node wizard-bridge.js 4500"),
+              " and update this URL accordingly.",
+            ]),
+            e("div", { class: "settings-actions-row" }, [
+              e("button", {
+                type: "button",
+                disabled: bridgeStatus === "validating",
+                onclick: async function () {
+                  bridgeStatus = "validating";
+                  rerender();
+                  const result = await AISettings.validateBridge(formBridgeUrl.trim());
+                  bridgeStatus = result;
+                  rerender();
+                },
+              }, bridgeStatus === "validating" ? "Testing…" : "Test bridge"),
+            ]),
+            bridgeStatus && bridgeStatus !== "validating"
+              ? e("p", {
+                  class: bridgeStatus.ok ? "settings-test-ok" : "settings-test-fail",
+                  role: "status",
+                }, bridgeStatus.ok
+                  ? "✓ Connected to wizard-bridge " + bridgeStatus.version + (bridgeStatus.port ? (" on port " + bridgeStatus.port) : "") + "."
+                  : "✗ " + (bridgeStatus.error || "Bridge unreachable."))
+              : null,
+          ]) : null,
+
+          // API key — only in api mode
+          isApiBackend ? e("div", { class: "card settings-section" }, [
             e("h2", null, "Anthropic API key"),
             e("p", { class: "muted" }, "Used only by your browser for the review API calls. Stored in this browser's localStorage."),
             e("input", {
@@ -3854,7 +4075,7 @@
                   ? "✓ Connected. Model verified: " + (testStatus.model || formModel)
                   : "✗ " + (testStatus.error || "Validation failed."))
               : null,
-          ]),
+          ]) : null,
 
           // Model
           e("div", { class: "card settings-section" }, [
@@ -3929,7 +4150,7 @@
           // Consent (only when entering a key for the first time).
           // Once recorded, hidden forever. Shown again only if the user clears
           // their key and enters a new one before consent is on file.
-          (!hadConsent && trimmed.length > 0) ? e("div", { class: "card settings-section" }, [
+          (isApiBackend && !hadConsent && trimmed.length > 0) ? e("div", { class: "card settings-section" }, [
             e("h2", null, "Acknowledgements (first-time setup)"),
             e("p", { class: "muted" }, "All three boxes must be checked before the AI review can be enabled with this key. They confirm you understand what happens with your data and your costs."),
             e("label", { class: "settings-consent" }, [
@@ -3954,11 +4175,19 @@
               class: "primary",
               disabled: !canSave,
               onclick: function () {
-                AISettings.setApiKey(trimmed);
+                // V2.1: only persist a key in api mode (bridge mode has no
+                // key to track). When switching modes, the existing key is
+                // preserved in localStorage so the user can flip back without
+                // re-entering it.
+                if (isApiBackend) {
+                  AISettings.setApiKey(trimmed);
+                }
                 AISettings.setConfig({
                   model: formModel,
                   max_iterations: formMaxIter,
-                  consent_at: hadConsent ? AISettings.getConfig().consent_at : new Date().toISOString(),
+                  backend: formBackend,
+                  bridge_url: (formBridgeUrl || AISettings.DEFAULTS.bridge_url).trim().replace(/\/$/, ""),
+                  consent_at: hadConsent ? AISettings.getConfig().consent_at : (isApiBackend ? new Date().toISOString() : null),
                 });
                 opts.onClose();
               },
