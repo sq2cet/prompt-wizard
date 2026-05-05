@@ -313,6 +313,43 @@ button.danger-btn:hover {
   color: #fff;
 }
 
+/* ===================================================================== */
+/* V2.3 — Settings modal (AI configuration)                              */
+/* ===================================================================== */
+
+.settings-screen .settings-section + .settings-section { margin-top: 12px; }
+.settings-section h2 { margin-top: 0; }
+
+.settings-actions-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.settings-actions-row button { margin: 0; }
+
+.settings-test-ok    { color: var(--ok); margin-top: 8px; font-weight: 500; }
+.settings-test-fail  { color: var(--danger); margin-top: 8px; font-weight: 500; }
+
+.settings-iter-input { max-width: 120px; }
+
+.settings-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 8px 0;
+  cursor: pointer;
+}
+.settings-consent input[type="checkbox"] { margin-top: 4px; }
+
+.settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+.settings-footer button { margin: 0; }
+
 /* No-script fallback */
 .noscript {
   max-width: var(--maxw);

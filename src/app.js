@@ -734,6 +734,175 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 500);
   }
 
+  // ----- AISettings (V2.3) ---------------------------------------------------
+  //
+  // API key + model preference + max-iterations + first-time consent. Stored
+  // separately from the main state in localStorage so the API key is NEVER
+  // serialised into the project file or the bundle ZIP. Per the V2 plan
+  // (locked decisions): default model Opus 4.7; loop cap 5 iterations.
+  //
+  // Surfaced via the SettingsModal that opens from the header gear icon.
+  // Validation against the Anthropic API is a tiny test request (max_tokens=10)
+  // that confirms the key is accepted.
+
+  const AISettings = (function () {
+    const KEY_API   = "prompt-wizard:ai-key:v1";
+    const KEY_CFG   = "prompt-wizard:ai-config:v1";
+    const KEY_USAGE = "prompt-wizard:ai-usage:v1";
+
+    const MODELS = [
+      {
+        id: "claude-opus-4-7",
+        label: "Claude Opus 4.7",
+        per_session_cost: "≈ $1 – $2 per review session",
+        description: "Highest quality. Best for nuanced cross-field analysis.",
+      },
+      {
+        id: "claude-sonnet-4-6",
+        label: "Claude Sonnet 4.6",
+        per_session_cost: "≈ $0.25 – $0.50 per review session",
+        description: "Balance of quality and cost. Good default if Opus is too expensive.",
+      },
+      {
+        id: "claude-haiku-4-5",
+        label: "Claude Haiku 4.5",
+        per_session_cost: "≈ $0.05 – $0.10 per review session",
+        description: "Cheapest and fastest. Less depth on subtle ambiguities.",
+      },
+    ];
+
+    const DEFAULTS = {
+      model: "claude-opus-4-7",
+      max_iterations: 5,
+      consent_at: null,
+    };
+
+    function _readLs(key) {
+      try { return localStorage.getItem(key); } catch (_) { return null; }
+    }
+    function _writeLs(key, value) {
+      try { localStorage.setItem(key, value); return true; } catch (_) { return false; }
+    }
+    function _removeLs(key) {
+      try { localStorage.removeItem(key); return true; } catch (_) { return false; }
+    }
+
+    // --- API key ---
+    function getApiKey() { return _readLs(KEY_API); }
+    function setApiKey(key) { return _writeLs(KEY_API, String(key || "")); }
+    function clearApiKey() {
+      _removeLs(KEY_API);
+      _removeLs(KEY_USAGE);
+    }
+    function hasApiKey() {
+      const k = getApiKey();
+      return typeof k === "string" && k.length > 0;
+    }
+    function maskApiKey(k) {
+      const s = String(k || "");
+      if (s.length <= 12) return "***";
+      return s.slice(0, 7) + "…" + s.slice(-4);
+    }
+
+    // --- Config ---
+    function getConfig() {
+      const raw = _readLs(KEY_CFG);
+      if (!raw) return Object.assign({}, DEFAULTS);
+      try {
+        return Object.assign({}, DEFAULTS, JSON.parse(raw));
+      } catch (_) {
+        return Object.assign({}, DEFAULTS);
+      }
+    }
+    function setConfig(patch) {
+      const cur = getConfig();
+      const next = Object.assign({}, cur, patch);
+      _writeLs(KEY_CFG, JSON.stringify(next));
+      return next;
+    }
+    function recordConsent() {
+      return setConfig({ consent_at: new Date().toISOString() });
+    }
+    function hasConsent() {
+      const cfg = getConfig();
+      return typeof cfg.consent_at === "string" && cfg.consent_at.length > 0;
+    }
+
+    // --- Usage / cost meter ---
+    function getUsage() {
+      const raw = _readLs(KEY_USAGE);
+      if (!raw) return { input_tokens: 0, output_tokens: 0, calls: 0, since: null };
+      try {
+        return JSON.parse(raw);
+      } catch (_) {
+        return { input_tokens: 0, output_tokens: 0, calls: 0, since: null };
+      }
+    }
+    function addUsage(inputTokens, outputTokens) {
+      const cur = getUsage();
+      const next = {
+        input_tokens: cur.input_tokens + (inputTokens | 0),
+        output_tokens: cur.output_tokens + (outputTokens | 0),
+        calls: cur.calls + 1,
+        since: cur.since || new Date().toISOString(),
+      };
+      _writeLs(KEY_USAGE, JSON.stringify(next));
+      return next;
+    }
+    function resetUsage() { _removeLs(KEY_USAGE); }
+
+    function modelInfo(modelId) {
+      return MODELS.find(function (m) { return m.id === modelId; }) || MODELS[0];
+    }
+
+    /**
+     * Validate an API key by calling the Anthropic Messages API with the
+     * smallest possible payload. Resolves to { ok, model?, status?, error? }.
+     * Uses anthropic-dangerous-direct-browser-access: true to satisfy CORS.
+     */
+    async function validateKey(key, model) {
+      if (!key) return { ok: false, error: "API key is empty." };
+      try {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": String(key),
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: model || DEFAULTS.model,
+            max_tokens: 10,
+            messages: [{ role: "user", content: "hi" }],
+          }),
+        });
+        if (response.ok) {
+          let data = null;
+          try { data = await response.json(); } catch (_) {}
+          return { ok: true, model: (data && data.model) || model || DEFAULTS.model };
+        }
+        let errMsg = "HTTP " + response.status;
+        try {
+          const err = await response.json();
+          if (err && err.error && err.error.message) errMsg = err.error.message;
+        } catch (_) {}
+        return { ok: false, status: response.status, error: errMsg };
+      } catch (err) {
+        return { ok: false, error: (err && err.message ? err.message : String(err)) };
+      }
+    }
+
+    return {
+      MODELS, DEFAULTS,
+      getApiKey, setApiKey, clearApiKey, hasApiKey, maskApiKey,
+      getConfig, setConfig,
+      hasConsent, recordConsent,
+      getUsage, addUsage, resetUsage,
+      modelInfo, validateKey,
+    };
+  })();
+
   // ----- ProjectStore (V2.1) -------------------------------------------------
   //
   // File-based persistence using the File System Access API. The user picks a
@@ -808,18 +977,58 @@
     // ---- Directory handle: pick + persist + permission ----
 
     /**
-     * Returns the stored directory handle, asking permission if necessary.
-     * Returns null if no handle is stored or permission denied.
+     * Returns the stored directory handle if we already have a granted
+     * read-write permission. Returns null otherwise — the caller is then
+     * expected to render a "Choose folder" prompt (or "Re-grant access")
+     * and call `restoreOrPickDirectory()` from a real user gesture.
+     *
+     * Critically, we MUST NOT call `requestPermission()` here. Chromium
+     * requires a user-activated event for that call; calling it during
+     * boot throws `SecurityError: User activation is required` which
+     * blanks the page. (Bug found in V2.3 testing.)
      */
     async function getDirectoryHandle() {
       if (!available()) return null;
       const handle = await _idbGet(KEY_DIR);
       if (!handle) return null;
-      // The browser can require us to re-request permission after a relaunch.
-      const perm = await handle.queryPermission({ mode: "readwrite" });
-      if (perm === "granted") return handle;
-      const requested = await handle.requestPermission({ mode: "readwrite" });
-      if (requested === "granted") return handle;
+      try {
+        const perm = await handle.queryPermission({ mode: "readwrite" });
+        if (perm === "granted") return handle;
+      } catch (_) { /* fall through */ }
+      return null;
+    }
+
+    /**
+     * Inspect the stored handle without requesting permission. Returns
+     * { handle, permission } where permission is "granted" / "prompt" /
+     * "denied" / "none". Used by the StartupScreen to decide whether to
+     * show "Choose folder" (no stored handle) or "Re-grant access to
+     * <folder>" (stored handle, prompt-required).
+     */
+    async function inspectDirectoryHandle() {
+      if (!available()) return { handle: null, permission: "none" };
+      const handle = await _idbGet(KEY_DIR);
+      if (!handle) return { handle: null, permission: "none" };
+      let perm = "prompt";
+      try {
+        perm = await handle.queryPermission({ mode: "readwrite" });
+      } catch (_) { /* keep "prompt" */ }
+      return { handle: handle, permission: perm };
+    }
+
+    /**
+     * Re-request permission for the stored handle. MUST be called from
+     * inside a user-gesture event handler (e.g. a button click). Returns
+     * the handle if granted, null otherwise.
+     */
+    async function restoreDirectoryAccess() {
+      if (!available()) return null;
+      const handle = await _idbGet(KEY_DIR);
+      if (!handle) return null;
+      try {
+        const requested = await handle.requestPermission({ mode: "readwrite" });
+        if (requested === "granted") return handle;
+      } catch (_) { /* swallow — return null below */ }
       return null;
     }
 
@@ -928,6 +1137,8 @@
       available,
       pickDirectory,
       getDirectoryHandle,
+      inspectDirectoryHandle,
+      restoreDirectoryAccess,
       forgetDirectory,
       listProjects,
       createProjectFile,
@@ -2225,22 +2436,40 @@
     }
 
     // --- Pick-directory first-run --------------------------------------------
-    function _renderPickDir(host, onPick) {
+    // `inspect` is null on cold first-run, or { handle, permission } when a
+    // handle was stored in a previous session. In the latter case we offer a
+    // "Re-grant access" button — clicking it triggers `requestPermission`
+    // from inside a user gesture (the only context Chromium allows).
+    function _renderPickDir(host, onPick, onRestore, inspect) {
       Renderer.clear(host);
+      const hasStoredHandle = !!(inspect && inspect.handle);
+      const buttons = [];
+      if (hasStoredHandle) {
+        buttons.push(e("button", {
+          type: "button",
+          class: "primary startup-btn",
+          onclick: function () { onRestore(); },
+        }, [e("strong", null, "▸ Re-grant access to my saved folder")]));
+        buttons.push(e("button", {
+          type: "button",
+          class: "startup-btn",
+          onclick: function () { onPick(); },
+        }, [e("strong", null, "▸ Choose a different folder")]));
+      } else {
+        buttons.push(e("button", {
+          type: "button",
+          class: "primary startup-btn",
+          onclick: function () { onPick(); },
+        }, [e("strong", null, "▸ Choose folder")]));
+      }
+      const explainer = hasStoredHandle
+        ? "Browsers re-prompt for folder access after a relaunch. Click Re-grant to keep using the same folder, or pick a new one."
+        : "The wizard saves each project as a JSON file in a folder you choose. Pick one now — the next time you open the wizard, it will open in this folder and list your saved projects.";
       host.appendChild(e("main", { class: "screen startup", id: "app-main" }, [
         e("p", { class: "kicker" }, "Welcome"),
-        e("h1", null, "Choose where your projects live"),
-        e("p", { class: "muted" },
-          "The wizard saves each project as a JSON file in a folder you choose. " +
-          "Pick one now — the next time you open the wizard, it will open in this folder and " +
-          "list your saved projects."),
-        e("div", { class: "startup-actions" }, [
-          e("button", {
-            type: "button",
-            class: "primary startup-btn",
-            onclick: function () { onPick(); },
-          }, [e("strong", null, "▸ Choose folder")]),
-        ]),
+        e("h1", null, hasStoredHandle ? "Re-open your projects folder" : "Choose where your projects live"),
+        e("p", { class: "muted" }, explainer),
+        e("div", { class: "startup-actions" }, buttons),
         _versionFooter(),
       ]));
     }
@@ -2306,26 +2535,43 @@
 
     // --- Mount: dispatch to the right state ----------------------------------
     async function mount(host, handlers) {
-      // Legacy mode: API not supported.
-      if (!ProjectStore.available()) {
-        _renderLegacy(host, handlers.onLegacyChoice);
-        return;
-      }
-      // Try to get the directory; if none, prompt the user.
-      const dir = await ProjectStore.getDirectoryHandle();
-      if (!dir) {
-        _renderPickDir(host, async function () {
-          try {
-            const picked = await ProjectStore.pickDirectory();
-            if (picked) await mount(host, handlers); // re-mount in list mode
-          } catch (err) {
-            window.alert("Could not access that folder: " + (err && err.message ? err.message : err));
-          }
-        });
-        return;
-      }
-      // List mode.
       try {
+        // Legacy mode: API not supported.
+        if (!ProjectStore.available()) {
+          _renderLegacy(host, handlers.onLegacyChoice);
+          return;
+        }
+        // Inspect without requesting permission (boot is not a user gesture).
+        let inspect = { handle: null, permission: "none" };
+        try { inspect = await ProjectStore.inspectDirectoryHandle(); }
+        catch (e) { console.warn("inspectDirectoryHandle failed:", e); }
+
+        if (!inspect.handle || inspect.permission !== "granted") {
+          _renderPickDir(
+            host,
+            async function () {                      // onPick — fresh folder
+              try {
+                const picked = await ProjectStore.pickDirectory();
+                if (picked) await mount(host, handlers);
+              } catch (err) {
+                window.alert("Could not access that folder: " + (err && err.message ? err.message : err));
+              }
+            },
+            async function () {                      // onRestore — re-grant existing
+              try {
+                const restored = await ProjectStore.restoreDirectoryAccess();
+                if (restored) await mount(host, handlers);
+                else window.alert("Folder access was not granted. Try again or pick a different folder.");
+              } catch (err) {
+                window.alert("Could not re-grant folder access: " + (err && err.message ? err.message : err));
+              }
+            },
+            inspect
+          );
+          return;
+        }
+
+        // List mode — permission is granted.
         const projects = await ProjectStore.listProjects();
         _renderProjectList(host, projects, {
           onLoad: handlers.onLoadFromList,
@@ -2350,8 +2596,10 @@
           },
         });
       } catch (err) {
-        console.error("Could not list projects:", err);
-        window.alert("Could not read the projects folder: " + (err && err.message ? err.message : err));
+        console.error("StartupScreen.mount failed:", err);
+        // Last-resort fallback: show the legacy screen so the page is never
+        // blank. The user keeps a way out.
+        _renderLegacy(host, handlers.onLegacyChoice);
       }
     }
 
@@ -2437,6 +2685,207 @@
     }
 
     return { mount, isValid, suggestFromString };
+  })();
+
+  // ----- SettingsModal (V2.3) ------------------------------------------------
+  //
+  // Configuration for the AI review (V2.4+). Renders a full-page screen
+  // (matching ProjectNameDialog's pattern) with API key + model + max
+  // iterations + first-time consent + Test connection. The API key is stored
+  // separately from project state via AISettings — never serialised into
+  // answers.json or the bundle ZIP.
+
+  const SettingsModal = (function () {
+    function mount(host, opts) {
+      const cfg = AISettings.getConfig();
+      const usage = AISettings.getUsage();
+      const hadKey = AISettings.hasApiKey();
+      const hadConsent = AISettings.hasConsent();
+
+      // In-memory form state. The user can iterate without hitting save until
+      // they're happy.
+      let formKey = AISettings.getApiKey() || "";
+      let formModel = cfg.model || AISettings.DEFAULTS.model;
+      let formMaxIter = cfg.max_iterations || AISettings.DEFAULTS.max_iterations;
+      let consentApi = hadConsent;
+      let consentLs  = hadConsent;
+      let consentCost = hadConsent;
+      let testStatus = null; // null | "validating" | { ok: true, model } | { ok: false, error }
+
+      function rerender() {
+        Renderer.clear(host);
+        const allChecked = consentApi && consentLs && consentCost;
+        const trimmed = formKey.trim();
+        const showTestBtn = trimmed.length > 0;
+        // V2.3: allow saving preferences without an API key. When no key is
+        // entered, settings are still persisted (model + max-iterations);
+        // AI review stays in OFFLINE mode (the local rule-based engine).
+        // Consent is only required when storing a key.
+        const canSave = trimmed.length === 0 ? true : (allChecked && hadConsent
+          ? true                       // consent already on file
+          : allChecked);
+
+        host.appendChild(e("main", { class: "screen settings-screen", id: "app-main" }, [
+          e("p", { class: "kicker" }, "Settings"),
+          e("h1", null, "AI review configuration"),
+          e("p", { class: "muted" }, [
+            "The wizard's AI review feature (coming online over V2.4–V2.6) sends your answers to ",
+            e("a", { href: "https://docs.claude.com/en/api/getting-started", target: "_blank", rel: "noopener noreferrer" }, "Anthropic's Claude API"),
+            ". Configure your API key here. Without one, the wizard still works fully — the AI review just stays disabled.",
+          ]),
+
+          // API key
+          e("div", { class: "card settings-section" }, [
+            e("h2", null, "Anthropic API key"),
+            e("p", { class: "muted" }, "Used only by your browser for the review API calls. Stored in this browser's localStorage."),
+            e("input", {
+              type: "password",
+              class: "q-input",
+              placeholder: "sk-ant-…",
+              value: formKey,
+              oninput: function (ev) { formKey = ev.currentTarget.value; rerender(); },
+              "aria-label": "API key",
+              autocomplete: "off",
+              spellcheck: "false",
+            }),
+            hadKey && !formKey ? e("p", { class: "muted q-hint" }, "Current key was forgotten. Paste a new one above to re-enable.") : null,
+            !trimmed ? e("p", { class: "muted q-hint" }, [
+              e("strong", null, "Offline mode. "),
+              "Without a key, the AI review runs the deterministic local rule engine only — no API calls, no cost. You can still save your model preference for later.",
+            ]) : null,
+            e("div", { class: "settings-actions-row" }, [
+              showTestBtn ? e("button", {
+                type: "button",
+                disabled: testStatus === "validating",
+                onclick: async function () {
+                  testStatus = "validating";
+                  rerender();
+                  const result = await AISettings.validateKey(trimmed, formModel);
+                  testStatus = result;
+                  rerender();
+                },
+              }, testStatus === "validating" ? "Testing…" : "Test connection") : null,
+              hadKey ? e("button", {
+                type: "button",
+                class: "danger-btn",
+                onclick: function () {
+                  if (!window.confirm("Forget the stored API key? AI features will be disabled until you enter a new one.")) return;
+                  AISettings.clearApiKey();
+                  AISettings.resetUsage();
+                  formKey = "";
+                  testStatus = null;
+                  rerender();
+                },
+              }, "Forget API key") : null,
+            ]),
+            testStatus && testStatus !== "validating"
+              ? e("p", {
+                  class: testStatus.ok ? "settings-test-ok" : "settings-test-fail",
+                  role: "status",
+                }, testStatus.ok
+                  ? "✓ Connected. Model verified: " + (testStatus.model || formModel)
+                  : "✗ " + (testStatus.error || "Validation failed."))
+              : null,
+          ]),
+
+          // Model
+          e("div", { class: "card settings-section" }, [
+            e("h2", null, "Model"),
+            e("div", { class: "q-options", role: "radiogroup", "aria-label": "Review model" }, AISettings.MODELS.map(function (m) {
+              const checked = formModel === m.id;
+              const id = "settings-model-" + m.id;
+              return e("label", { class: "q-radio" + (checked ? " is-active" : ""), for: id }, [
+                e("input", {
+                  type: "radio",
+                  id: id,
+                  name: "settings-model",
+                  value: m.id,
+                  checked: checked,
+                  onchange: function () { formModel = m.id; testStatus = null; rerender(); },
+                }),
+                e("span", { class: "q-radio-body" }, [
+                  e("strong", null, m.label),
+                  e("span", { class: "q-radio-desc" }, m.description),
+                  e("span", { class: "q-radio-desc" }, m.per_session_cost),
+                ]),
+              ]);
+            })),
+          ]),
+
+          // Max iterations
+          e("div", { class: "card settings-section" }, [
+            e("h2", null, "Maximum iterations"),
+            e("p", { class: "muted" }, "Hard cap on AI review rounds before the wizard forces you to generate (V2 plan: default 5)."),
+            e("input", {
+              type: "number",
+              class: "q-input settings-iter-input",
+              min: 1,
+              max: 20,
+              value: String(formMaxIter),
+              oninput: function (ev) {
+                const v = parseInt(ev.currentTarget.value, 10);
+                if (!isNaN(v) && v >= 1 && v <= 20) formMaxIter = v;
+              },
+            }),
+          ]),
+
+          // Cost meter
+          usage && usage.calls > 0
+            ? e("div", { class: "card settings-section" }, [
+                e("h2", null, "Usage since key was set"),
+                e("p", { class: "muted" }, [
+                  "Started ", e("code", null, usage.since || "(unknown)"), " · ",
+                  String(usage.calls), " call" + (usage.calls === 1 ? "" : "s"), " · ",
+                  String(usage.input_tokens), " input + ", String(usage.output_tokens), " output tokens.",
+                ]),
+              ])
+            : null,
+
+          // Consent (only when entering a key for the first time).
+          // Once recorded, hidden forever. Shown again only if the user clears
+          // their key and enters a new one before consent is on file.
+          (!hadConsent && trimmed.length > 0) ? e("div", { class: "card settings-section" }, [
+            e("h2", null, "Acknowledgements (first-time setup)"),
+            e("p", { class: "muted" }, "All three boxes must be checked before the AI review can be enabled with this key. They confirm you understand what happens with your data and your costs."),
+            e("label", { class: "settings-consent" }, [
+              e("input", { type: "checkbox", checked: consentApi, onchange: function (ev) { consentApi = ev.currentTarget.checked; rerender(); } }),
+              e("span", null, "My answers will be sent to Anthropic's API when I trigger an AI review."),
+            ]),
+            e("label", { class: "settings-consent" }, [
+              e("input", { type: "checkbox", checked: consentLs, onchange: function (ev) { consentLs = ev.currentTarget.checked; rerender(); } }),
+              e("span", null, "My API key is stored in this browser's localStorage as plaintext."),
+            ]),
+            e("label", { class: "settings-consent" }, [
+              e("input", { type: "checkbox", checked: consentCost, onchange: function (ev) { consentCost = ev.currentTarget.checked; rerender(); } }),
+              e("span", null, "I understand I will be billed by Anthropic. The cost estimate for the chosen model is shown above."),
+            ]),
+          ]) : null,
+
+          // Footer actions
+          e("div", { class: "settings-footer" }, [
+            e("button", { type: "button", onclick: function () { opts.onClose(); } }, "Cancel"),
+            e("button", {
+              type: "button",
+              class: "primary",
+              disabled: !canSave,
+              onclick: function () {
+                AISettings.setApiKey(trimmed);
+                AISettings.setConfig({
+                  model: formModel,
+                  max_iterations: formMaxIter,
+                  consent_at: hadConsent ? AISettings.getConfig().consent_at : new Date().toISOString(),
+                });
+                opts.onClose();
+              },
+            }, "Save settings"),
+          ]),
+        ]));
+      }
+
+      rerender();
+    }
+
+    return { mount };
   })();
 
   // ----- WizardApp -----------------------------------------------------------
@@ -2662,8 +3111,19 @@
     _askProjectNameAndStart();
   }
   function _onHeaderSettings() {
-    // V2.1 stub. V2.3 mounts the AISettings modal here.
-    window.alert("Settings — coming in V2.3 (AI configuration: API key, model, cost meter).");
+    // V2.3: open the AI Settings modal. After Save / Cancel, return to the
+    // wizard at the same phase the user was on. Mount over the host so the
+    // modal replaces the wizard view; the WizardApp.rerender on close
+    // restores it.
+    const host = document.getElementById("app");
+    if (!host) return;
+    SettingsModal.mount(host, {
+      onClose: function () {
+        // Re-mount the wizard at the current route. Bypasses the startup
+        // screen — user came from the wizard, so they should land back there.
+        WizardApp.mount(host);
+      },
+    });
   }
   // Expose them so HeaderBar (defined earlier in this IIFE) can wire its buttons.
   // HeaderBar.render() reads window.PromptWizard.headerActions.
