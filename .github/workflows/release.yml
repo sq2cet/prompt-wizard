@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # required for gh release create
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags + history for git-log-based release notes
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install build deps
+        run: pip install -r requirements-dev.txt
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Materialise forbidden-terms list from secret
+        env:
+          FORBIDDEN_TERMS: ${{ secrets.FORBIDDEN_TERMS }}
+        run: |
+          if [ -z "$FORBIDDEN_TERMS" ]; then
+            echo "ERROR: repository secret FORBIDDEN_TERMS is not set." >&2
+            exit 2
+          fi
+          mkdir -p "$RUNNER_TEMP/cfg"
+          printf '%s\n' "$FORBIDDEN_TERMS" > "$RUNNER_TEMP/cfg/forbidden-terms.txt"
+          echo "FORBIDDEN_TERMS_FILE=$RUNNER_TEMP/cfg/forbidden-terms.txt" >> "$GITHUB_ENV"
+
+      - name: Run all gates (scan, validate, snapshot)
+        run: |
+          python3 build.py scan
+          python3 build.py validate
+          python3 build.py snapshot
+
+      - name: Build prompt-wizard.html
+        env:
+          BUILD_COMMIT_SHA: ${{ github.sha }}
+        run: python3 build.py build
+
+      - name: Sanity-check artefact
+        run: |
+          test -s prompt-wizard.html
+          grep -q 'id="data-question-taxonomy"' prompt-wizard.html
+          grep -q '<div id="app"' prompt-wizard.html
+          grep -q 'JSZip' prompt-wizard.html
+          if grep -E '__[A-Z][A-Z0-9_]+__' prompt-wizard.html ; then
+            echo "Unresolved placeholder tokens detected" >&2
+            exit 1
+          fi
+          ls -la prompt-wizard.html
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          # Capture the section under "## [VERSION]" in CHANGELOG.md, stopping
+          # at the next "## [" header or end of file.
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "Release notes for $VERSION not found in CHANGELOG.md; falling back to tag message." >&2
+            git tag -l --format='%(contents)' "$TAG" > release-notes.md
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "----- release notes -----"
+          cat release-notes.md
+          echo "-------------------------"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.notes.outputs.tag }}" \
+            --title "${{ steps.notes.outputs.tag }}" \
+            --notes-file release-notes.md \
+            prompt-wizard.html
