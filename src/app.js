@@ -392,7 +392,14 @@
         }
       }
       if (children != null) {
-        const list = Array.isArray(children) ? children : [children];
+        // V2.2.1: flatten one level of nested arrays. The idiomatic pattern
+        //   e("p", null, ["Prefix: ", arr.map(item => e("span", ...))])
+        // produces a children array shaped ["...", [span, span, ...]]; without
+        // flattening, appendChild(innerArray) throws "parameter 1 is not of
+        // type 'Node'" and the entire render path crashes (the V2.4 AI review
+        // panel hit this whenever Claude returned an issue with non-empty
+        // related[]). Snapshot tests never render to DOM, so this slipped.
+        const list = Array.isArray(children) ? children.flat() : [children];
         for (const c of list) {
           if (c == null) continue;
           if (typeof c === "string" || typeof c === "number") node.appendChild(document.createTextNode(String(c)));

@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] — 2026-05-06
+
+Hotfix for a render-time crash introduced in v2.4 (the AI review
+panel) and never caught by CI.
+
+### Fixed
+
+- **AI review crash on issues with `related[]` entries.** Clicking
+  Get AI review when Claude returned at least one issue with a
+  non-empty `related[]` array crashed the renderer with
+  `TypeError: Failed to execute 'appendChild' on 'Node': parameter 1
+  is not of type 'Node'`. The screen would blank and the user had
+  to reload. Root cause: the `e()` helper's children loop didn't
+  flatten nested arrays, and the idiomatic
+  `e("p", null, ["Prefix: ", arr.map(...)])` pattern produced a
+  shape `["...", [span, span]]` whose inner array was passed to
+  `appendChild` directly. Snapshot tests exercise the Generator
+  (markdown text), never the DOM rendering, so the regression
+  slipped through every gate. One-line fix: `children.flat()`
+  in the helper. Same fix covers any other nested-array site
+  (none observed crashing yet, but the renderer is now resilient).
+
+Build artefact: 405.2 KB. Same 7-example snapshot set, re-baked
+for the version footer.
+
 ## [2.2.0] — 2026-05-06
 
 The generator-coherence release. v2.0–v2.1 layered new features (AI

@@ -310,7 +310,7 @@ VENDOR_DIRS: tuple[str, ...] = (
     "src/vendor/jszip",
 )
 
-WIZARD_VERSION = "2.2.0"  # Single source of truth; bumped per release.
+WIZARD_VERSION = "2.2.1"  # Single source of truth; bumped per release.
 
 
 def _git_short_sha() -> str:
