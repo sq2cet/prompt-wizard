@@ -608,7 +608,18 @@
     return lines.join("\n");
   }
 
-  function generateMetaNonFunctional(state) {
+  // V2.2 (Pattern 1): given an emittedDocs Set, return either a markdown
+  // backtick-link to the doc (if it's in the set) or `null` so the caller
+  // can drop the sentence. Pass an explicit literal fallback if you want
+  // a different tail than the standard "_(see <doc>)_".
+  function _seeDoc(emittedDocs, filename) {
+    if (emittedDocs && emittedDocs.has && emittedDocs.has(filename)) {
+      return "_(see `" + filename + "`)_";
+    }
+    return null;
+  }
+
+  function generateMetaNonFunctional(state, emittedDocs) {
     const audAnswers = (state.phases.audience || {}).answers || {};
     const valAnswers = (state.phases.validation || {}).answers || {};
     const errAnswers = (state.phases.error_handling || {}).answers || {};
@@ -628,14 +639,30 @@
     lines.push("## Scale");
     lines.push("- Expected user base: `" + scale + "`");
     lines.push("");
-    lines.push("## Validation strategy");
-    lines.push((valAnswers.strategy && valAnswers.strategy.value) || "_(see docs/10-validation.md)_");
-    lines.push("");
-    lines.push("## Error handling");
-    lines.push((errAnswers.taxonomy && errAnswers.taxonomy.value) || "_(see docs/11-error-handling.md)_");
-    lines.push("");
-    lines.push("## Logging & observability");
-    lines.push((logAnswers.logs && logAnswers.logs.value) || "_(see docs/12-logging-and-observability.md)_");
+
+    // V2.2 (Pattern 1): only print a section if the user gave a value OR
+    // the corresponding doc was emitted. When both are absent, the section
+    // would be a stale "see docs/NN-...md" pointing at nothing.
+    const valStrategy = (valAnswers.strategy && valAnswers.strategy.value) || "";
+    const valSee = _seeDoc(emittedDocs, "docs/10-validation.md");
+    if (valStrategy || valSee) {
+      lines.push("## Validation strategy");
+      lines.push(valStrategy || valSee);
+      lines.push("");
+    }
+    const errTaxonomy = (errAnswers.taxonomy && errAnswers.taxonomy.value) || "";
+    const errSee = _seeDoc(emittedDocs, "docs/11-error-handling.md");
+    if (errTaxonomy || errSee) {
+      lines.push("## Error handling");
+      lines.push(errTaxonomy || errSee);
+      lines.push("");
+    }
+    const logLogs = (logAnswers.logs && logAnswers.logs.value) || "";
+    const logSee = _seeDoc(emittedDocs, "docs/12-logging-observability.md");
+    if (logLogs || logSee) {
+      lines.push("## Logging & observability");
+      lines.push(logLogs || logSee);
+    }
     return lines.join("\n");
   }
 
@@ -682,20 +709,68 @@
     return Array.isArray(v) ? v : [];
   }
 
-  function generateMetaBuildPlan(state) {
+  // V2.2 (Pattern 4): inspect the data-input / data-output phases for any
+  // user-described action that implies a build phase (CSV import, JSON
+  // export, etc.). Returns an array of {label, source} entries that the
+  // build plan will emit alongside the MUST features. The detection is
+  // deliberately loose — a sources/formats answer mentioning "csv" or
+  // "json" or "import" / "export" is sufficient. False positives are
+  // cheaper than missing a load-bearing flow that the reviewer flagged
+  // as silently absent (review bug #4).
+  function _dataIoActions(state) {
+    const out = [];
+    const seen = {};
+    function _maybeAdd(label, source) {
+      const key = label.toLowerCase().trim();
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      out.push({ label: label, source: source });
+    }
+    const inputAnswers  = ((state.phases.data_input  || {}).answers || {});
+    const outputAnswers = ((state.phases.data_output || {}).answers || {});
+    const inputFmts  = (inputAnswers.formats  && inputAnswers.formats.value)  || [];
+    const outputFmts = (outputAnswers.formats && outputAnswers.formats.value) || [];
+    const inputSrc   = (inputAnswers.sources  && inputAnswers.sources.value)  || "";
+    const outputCh   = (outputAnswers.channels && outputAnswers.channels.value) || "";
+    const inputCmt   = ((state.phases.data_input  || {}).phase_comment) || "";
+    const outputCmt  = ((state.phases.data_output || {}).phase_comment) || "";
+    function _scan(text, source, prefix) {
+      const t = String(text || "").toLowerCase();
+      if (!t) return;
+      if (t.indexOf("csv") >= 0)    _maybeAdd(prefix + " (CSV)", source);
+      if (t.indexOf("json") >= 0)   _maybeAdd(prefix + " (JSON)", source);
+      if (t.indexOf("xml") >= 0)    _maybeAdd(prefix + " (XML)", source);
+      if (t.indexOf("excel") >= 0 || t.indexOf("xlsx") >= 0) _maybeAdd(prefix + " (Excel / XLSX)", source);
+    }
+    if (Array.isArray(inputFmts)) {
+      for (const f of inputFmts) _scan(f, "data_input.formats", "Data import");
+    }
+    if (Array.isArray(outputFmts)) {
+      for (const f of outputFmts) _scan(f, "data_output.formats", "Data export");
+    }
+    _scan(inputSrc,  "data_input.sources",  "Data import");
+    _scan(outputCh,  "data_output.channels", "Data export");
+    _scan(inputCmt,  "data_input.phase_comment",  "Data import");
+    _scan(outputCmt, "data_output.phase_comment", "Data export");
+    return out;
+  }
+
+  function generateMetaBuildPlan(state, emittedDocs) {
     const qb = state.quality_bar || "personal";
     const must = _featuresList(state, "must_have");
     const should = _featuresList(state, "should_have");
+    const ioActions = _dataIoActions(state);
 
-    // V2.2 R4: build-plan phases derive from MUST features when present.
-    // The previous static 5-phase template ignored what the user actually
-    // asked the wizard to build, which the external review flagged as a
-    // significant gap (e.g. an import/export-heavy app had no
-    // import/export phase).
+    // V2.2 R4: build-plan phases derive from MUST features AND from
+    // user-described data import/export flows when present. The previous
+    // static 5-phase template ignored both, which the external review
+    // flagged as a significant gap (e.g. an import/export-heavy app had
+    // no import/export phase even though data_input/data_output described
+    // it in detail).
     const lines = [];
     lines.push("# Build plan");
     lines.push("");
-    lines.push("Quality bar: **" + qb + "**. Phases below are derived from the MUST features in `docs/04-features.md` plus the per-bar quality phases. Each has a goal and an explicit verification — only proceed past a phase once its verification passes.");
+    lines.push("Quality bar: **" + qb + "**. Phases below are derived from the MUST features in `docs/04-features.md`, the user-facing import / export flows in `docs/05-data-input.md` and `docs/09-data-output.md`, plus the per-bar quality phases. Each has a goal and an explicit verification — only proceed past a phase once its verification passes.");
     lines.push("");
 
     let n = 1;
@@ -715,12 +790,16 @@
     emitPhase("Project scaffold",
               "Project compiles / runs hello-world. The shell artefact (e.g. `index.html` for web, `main.py` for CLI) opens / runs without error.");
     emitPhase("Core data model and persistence",
-              "Round-trip a sample record through your chosen storage (per `docs/08-data-store.md`) without error.");
+              emittedDocs && emittedDocs.has("docs/08-data-store.md")
+                ? "Round-trip a sample record through your chosen storage (per `docs/08-data-store.md`) without error."
+                : "Round-trip a sample record through your chosen storage without error.");
 
     // R4 — one phase per MUST feature.
     if (must.length === 0) {
       emitPhase("Primary user flow",
-                "Manually exercise each behaviour the user expects. Refer to `docs/04-features.md`.");
+                emittedDocs && emittedDocs.has("docs/04-features.md")
+                  ? "Manually exercise each behaviour the user expects. Refer to `docs/04-features.md`."
+                  : "Manually exercise each behaviour the user expects.");
     } else {
       lines.push("---");
       lines.push("");
@@ -742,26 +821,57 @@
       }
     }
 
-    // Quality phases — vary by quality bar.
-    emitPhase("Validation and error handling",
-              "Trigger each error category from `docs/11-error-handling.md` and confirm the UX matches the strategy in `docs/10-validation.md`.");
+    // V2.2 (Pattern 4): data import/export phases — the build plan now
+    // surfaces them as first-class phases instead of hoping Claude infers
+    // them from docs/05 and docs/09. Each gets a phase with a verification.
+    if (ioActions.length > 0) {
+      lines.push("---");
+      lines.push("");
+      lines.push("**Data import / export phases — derived from `docs/05-data-input.md` and `docs/09-data-output.md`:**");
+      lines.push("");
+      for (const action of ioActions) {
+        emitPhase(action.label,
+                  "Round-trip the format — read a representative file (or write one), confirm field mapping matches the answers in `" + action.source.split(".")[0] + "`, and verify the user-visible flow in the UI.");
+      }
+    }
+
+    // Quality phases — vary by quality bar. V2.2 (Pattern 1): the
+    // verification text now references docs/10/11/12/13 only when those
+    // docs were emitted. Fallback text otherwise.
+    const v10 = emittedDocs && emittedDocs.has("docs/10-validation.md");
+    const v11 = emittedDocs && emittedDocs.has("docs/11-error-handling.md");
+    const v12 = emittedDocs && emittedDocs.has("docs/12-logging-observability.md");
+    const v13 = emittedDocs && emittedDocs.has("docs/13-operations.md");
+
+    let valVerify;
+    if (v10 && v11) valVerify = "Trigger each error category from `docs/11-error-handling.md` and confirm the UX matches the strategy in `docs/10-validation.md`.";
+    else if (v10)   valVerify = "Confirm the validation strategy in `docs/10-validation.md` is enforced at every input boundary the wizard captured (form submit, API call, file import, etc.).";
+    else if (v11)   valVerify = "Trigger each error category from `docs/11-error-handling.md` and confirm the UX matches the recorded user expectations.";
+    else            valVerify = "Confirm validation runs at every input boundary and that errors surface clearly to the user.";
+    emitPhase("Validation and error handling", valVerify);
 
     if (qb === "shareable" || qb === "production") {
       emitPhase("Logging and observability",
-                "Confirm structured log lines per `docs/12-logging-and-observability.md` and any health endpoints / metrics declared there.");
+                v12
+                  ? "Confirm structured log lines per `docs/12-logging-observability.md` and any health endpoints / metrics declared there."
+                  : "Confirm structured log lines and any health endpoints / metrics the user expects.");
       emitPhase("Tests",
                 "Run unit and integration tests; all green. Coverage matches the bands in `meta/test-plan.md`.");
       emitPhase("Deploy / release",
-                "Smoke-test the deployed instance against the MUST features; confirm `docs/13-operations.md` deployment steps are reproducible.");
+                v13
+                  ? "Smoke-test the deployed instance against the MUST features; confirm `docs/13-operations.md` deployment steps are reproducible."
+                  : "Smoke-test the deployed instance against the MUST features; document the deployment steps as you go.");
     }
     if (qb === "production") {
       emitPhase("Operations: monitoring + alerts + runbook",
-                "Trigger an alert against the staging environment and confirm the runbook resolves it. Cross-reference `docs/13-operations.md`.");
+                v13
+                  ? "Trigger an alert against the staging environment and confirm the runbook resolves it. Cross-reference `docs/13-operations.md`."
+                  : "Trigger an alert against the staging environment and confirm the runbook resolves it.");
     }
     return lines.join("\n");
   }
 
-  function generateMetaTestPlan(state) {
+  function generateMetaTestPlan(state, emittedDocs) {
     const qb = state.quality_bar || "personal";
     const must = _featuresList(state, "must_have");
 
@@ -817,7 +927,19 @@
         lines.push("");
       }
     }
-    lines.push("- Trigger one example of each error category in `docs/11-error-handling.md` and confirm the UX matches the policy in `docs/10-validation.md`.");
+    // V2.2 (Pattern 1): only mention 10/11 when those docs are in the bundle.
+    const v10 = emittedDocs && emittedDocs.has("docs/10-validation.md");
+    const v11 = emittedDocs && emittedDocs.has("docs/11-error-handling.md");
+    const v08 = emittedDocs && emittedDocs.has("docs/08-data-store.md");
+    if (v10 && v11) {
+      lines.push("- Trigger one example of each error category in `docs/11-error-handling.md` and confirm the UX matches the policy in `docs/10-validation.md`.");
+    } else if (v11) {
+      lines.push("- Trigger one example of each error category in `docs/11-error-handling.md` and confirm the UX matches the recorded user expectations.");
+    } else if (v10) {
+      lines.push("- Confirm validation rules from `docs/10-validation.md` fire on bad input at every boundary.");
+    } else {
+      lines.push("- Confirm validation rules fire on bad input at every boundary; the bundle does not specify a separate error-handling doc at this quality bar.");
+    }
     lines.push("");
 
     if (qb === "personal" || qb === "shareable" || qb === "production") {
@@ -828,7 +950,9 @@
     }
     if (qb === "shareable" || qb === "production") {
       lines.push("## Integration tests");
-      lines.push("- Storage read/write round-trips (per `docs/08-data-store.md`).");
+      lines.push(v08
+        ? "- Storage read/write round-trips (per `docs/08-data-store.md`)."
+        : "- Storage read/write round-trips against the chosen storage layer.");
       lines.push("- External API integrations (with mocks for offline runs).");
       lines.push("");
     }
@@ -841,21 +965,56 @@
     return lines.join("\n");
   }
 
-  function generateMetaArchitecture(state) {
+  function generateMetaArchitecture(state, emittedDocs) {
     const ffAnswers = (state.phases.form_factor || {}).answers || {};
     const primary = (ffAnswers.primary_factor && ffAnswers.primary_factor.value) || "";
     const lines = [];
     lines.push("# Architecture");
     lines.push("");
-    lines.push("Primary form factor: **" + (primary || "(unspecified)") + "**. The build agent chooses the file structure to match the recommended stack in `meta/tech-stack.md`. Below are the high-level shape and the data flow drawn from the user's answers in `docs/05–09-data-*.md`.");
+    lines.push("Primary form factor: **" + (primary || "(unspecified)") + "**. The build agent chooses the file structure to match the recommended stack in `meta/tech-stack.md`.");
     lines.push("");
-    lines.push("## Data flow");
-    lines.push("");
-    lines.push("```");
-    lines.push("INPUT  →  PROCESS  →  EXCHANGE  →  STORE  →  OUTPUT");
-    lines.push("```");
-    lines.push("");
-    lines.push("Each step is detailed in its corresponding `docs/0N-data-*.md` file. The build agent should map these to concrete components in the chosen stack and confirm the mapping with the human if it is non-obvious.");
+
+    // V2.2 (Pattern 4): the data-flow diagram is derived from which lifecycle
+    // phases actually have content. A localStorage-only contact manager
+    // shouldn't be told its architecture is INPUT→PROCESS→EXCHANGE→STORE→OUTPUT
+    // if its Process and Exchange phases are empty (the reviewer's bug #6).
+    const dataPhaseLabels = [
+      { id: "data_input",    label: "INPUT",    file: "docs/05-data-input.md" },
+      { id: "data_process",  label: "PROCESS",  file: "docs/06-data-process.md" },
+      { id: "data_exchange", label: "EXCHANGE", file: "docs/07-data-exchange.md" },
+      { id: "data_store",    label: "STORE",    file: "docs/08-data-store.md" },
+      { id: "data_output",   label: "OUTPUT",   file: "docs/09-data-output.md" },
+    ];
+    const liveLayers = dataPhaseLabels.filter(function (p) {
+      // A layer is "live" if its doc was emitted AND the phase has content.
+      // _phaseHasContent looks at answers, phase_comment, notes, rationales.
+      return emittedDocs && emittedDocs.has(p.file) && _phaseHasContent(state, p.id);
+    });
+
+    if (liveLayers.length === 0) {
+      lines.push("## Data flow");
+      lines.push("");
+      lines.push("_(The wizard collected no data-lifecycle answers — the build is straightforward enough that no separate data-flow shape applies. Treat this app as state-in / state-out without intermediate processing or external exchange.)_");
+    } else if (liveLayers.length < dataPhaseLabels.length) {
+      lines.push("## Data flow");
+      lines.push("");
+      lines.push("```");
+      lines.push(liveLayers.map(function (l) { return l.label; }).join("  →  "));
+      lines.push("```");
+      lines.push("");
+      lines.push("Only the data-lifecycle layers shown above carry content for this build. The omitted layers (" +
+        dataPhaseLabels.filter(function (p) { return liveLayers.indexOf(p) < 0; })
+          .map(function (p) { return p.label; }).join(", ") +
+        ") have no answers in the bundle and should be treated as not applicable.");
+    } else {
+      lines.push("## Data flow");
+      lines.push("");
+      lines.push("```");
+      lines.push("INPUT  →  PROCESS  →  EXCHANGE  →  STORE  →  OUTPUT");
+      lines.push("```");
+      lines.push("");
+      lines.push("Each step is detailed in its corresponding `docs/0N-data-*.md` file. The build agent should map these to concrete components in the chosen stack and confirm the mapping with the human if it is non-obvious.");
+    }
     return lines.join("\n");
   }
 
@@ -1218,13 +1377,19 @@
       out[phaseFilename(p)] = generatePhaseDoc(state, taxonomy, p.id);
     }
 
+    // V2.2 (Pattern 1 — link integrity): the meta/* generators need to
+    // know which docs were actually emitted so they can drop or rewrite
+    // cross-references to absent files. Build the set once here, after
+    // the phase loop is done emitting.
+    const emittedDocs = new Set(Object.keys(out).filter(function (k) { return k.startsWith("docs/"); }));
+
     // --- Meta synthesis (always emitted) ---
     out["meta/tech-stack.md"]      = generateMetaTechStack(state, dataBundle);
-    out["meta/non-functional.md"]  = generateMetaNonFunctional(state);
-    out["meta/architecture.md"]    = generateMetaArchitecture(state);
+    out["meta/non-functional.md"]  = generateMetaNonFunctional(state, emittedDocs);
+    out["meta/architecture.md"]    = generateMetaArchitecture(state, emittedDocs);
     out["meta/prerequisites.md"]   = generateMetaPrerequisites(state, dataBundle);
-    out["meta/build-plan.md"]      = generateMetaBuildPlan(state);
-    out["meta/test-plan.md"]       = generateMetaTestPlan(state);
+    out["meta/build-plan.md"]      = generateMetaBuildPlan(state, emittedDocs);
+    out["meta/test-plan.md"]       = generateMetaTestPlan(state, emittedDocs);
     out["meta/open-questions.md"]  = generateMetaOpenQuestions(state, taxonomy, dataBundle);
     out["meta/out-of-scope.md"]    = generateMetaOutOfScope(state);
 

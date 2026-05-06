@@ -1,6 +1,6 @@
 # Build plan
 
-Quality bar: **personal**. Phases below are derived from the MUST features in `docs/04-features.md` plus the per-bar quality phases. Each has a goal and an explicit verification — only proceed past a phase once its verification passes.
+Quality bar: **personal**. Phases below are derived from the MUST features in `docs/04-features.md`, the user-facing import / export flows in `docs/05-data-input.md` and `docs/09-data-output.md`, plus the per-bar quality phases. Each has a goal and an explicit verification — only proceed past a phase once its verification passes.
 
 ## Phase 1: Project scaffold
 

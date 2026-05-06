@@ -1,6 +1,6 @@
 # Architecture
 
-Primary form factor: **cli**. The build agent chooses the file structure to match the recommended stack in `meta/tech-stack.md`. Below are the high-level shape and the data flow drawn from the user's answers in `docs/05–09-data-*.md`.
+Primary form factor: **cli**. The build agent chooses the file structure to match the recommended stack in `meta/tech-stack.md`.
 
 ## Data flow
 

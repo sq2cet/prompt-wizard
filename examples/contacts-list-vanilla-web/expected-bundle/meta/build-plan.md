@@ -1,6 +1,6 @@
 # Build plan
 
-Quality bar: **personal**. Phases below are derived from the MUST features in `docs/04-features.md` plus the per-bar quality phases. Each has a goal and an explicit verification — only proceed past a phase once its verification passes.
+Quality bar: **personal**. Phases below are derived from the MUST features in `docs/04-features.md`, the user-facing import / export flows in `docs/05-data-input.md` and `docs/09-data-output.md`, plus the per-bar quality phases. Each has a goal and an explicit verification — only proceed past a phase once its verification passes.
 
 ## Phase 1: Project scaffold
 
@@ -62,6 +62,22 @@ Quality bar: **personal**. Phases below are derived from the MUST features in `d
 
 **Verify:** Demonstrate end-to-end. May be deferred if MUST features over-run schedule.
 
-## Phase 14: Validation and error handling
+---
+
+**Data import / export phases — derived from `docs/05-data-input.md` and `docs/09-data-output.md`:**
+
+## Phase 14: Data import (JSON)
+
+**Verify:** Round-trip the format — read a representative file (or write one), confirm field mapping matches the answers in `data_input`, and verify the user-visible flow in the UI.
+
+## Phase 15: Data import (CSV)
+
+**Verify:** Round-trip the format — read a representative file (or write one), confirm field mapping matches the answers in `data_input`, and verify the user-visible flow in the UI.
+
+## Phase 16: Data export (CSV)
+
+**Verify:** Round-trip the format — read a representative file (or write one), confirm field mapping matches the answers in `data_output`, and verify the user-visible flow in the UI.
+
+## Phase 17: Validation and error handling
 
 **Verify:** Trigger each error category from `docs/11-error-handling.md` and confirm the UX matches the strategy in `docs/10-validation.md`.
