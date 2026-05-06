@@ -39,3 +39,15 @@ The following phases share an identical free-text comment. The user almost certa
 
 - Phase 5 (Data — Input) matches Phase 9 (Data — Output).
   Excerpt: _The CSV format should use a header row and quote fields containing commas. Validation: name and email are required, e…_
+
+## Detailed-mode questions left unanswered
+
+The user opted into detailed (or simplified) mode for the phases below but left these questions blank. There is no AI-applied value, no rationale text, and no explicit Skip / Defer — they are gaps the user did not signal. Treat each one as **ASK before deciding**; the answer is not implicit anywhere else in the bundle.
+
+### Phase 4 (Features) — detailed mode
+
+- What features are bonus, future, or experimental?
+
+### Phase 12 (Logging & observability) — detailed mode
+
+- Beyond logs, what observability is in place?

@@ -8,3 +8,11 @@ The user ran an AI review pass and chose **"I don't know — Claude, you choose"
 
 - **Missing context** at `data_store/retention_period` (iteration 1): No retention period given. The build needs a number, not a vague intent.
   - Claude's prior suggestion (use as a starting point): Default to keeping data forever (single-user, local-first).
+
+## Detailed-mode questions left unanswered
+
+The user opted into detailed (or simplified) mode for the phases below but left these questions blank. There is no AI-applied value, no rationale text, and no explicit Skip / Defer — they are gaps the user did not signal. Treat each one as **ASK before deciding**; the answer is not implicit anywhere else in the bundle.
+
+### Phase 15 (Constraints) — detailed mode
+
+- Is there technology you must use?

@@ -73,13 +73,38 @@
     return _slug(pitch) || "untitled-project";
   }
 
-  function _formatAnswer(question, answer) {
-    if (!answer || answer.state === "blank")    return "_(not answered)_";
-    if (answer.state === "skipped")             return "_(skipped — sensible default applies)_";
-    if (answer.state === "deferred")            return "**ASK before deciding** _(user deferred this question)_";
-    const v = answer.value;
-    if (v == null || v === "") return "_(empty)_";
+  // V2.2 (Pattern 2): given a (phaseId, qid), find any applied_value the user
+  // recorded via AI review Accept/Change. The wizard's V2.5 behaviour writes
+  // to `value` for text/longtext and to `rationale` for select/boolean —
+  // which means structured docs that read `value` only show "_(not answered)_"
+  // for selects even when the user accepted Claude's suggestion. This helper
+  // closes that gap by searching ai_review for the most recent applied_value
+  // targeting (phase, question), so generators can fall back to it when
+  // `answer.value` is empty.
+  //
+  // Walks newest iteration first; returns the most recent accept/change for
+  // the (phase, question) target.
+  function _findAiAppliedValue(state, phaseId, qid) {
+    const ai = state && state.ai_review;
+    if (!ai || !Array.isArray(ai.iterations)) return null;
+    for (let i = ai.iterations.length - 1; i >= 0; i--) {
+      const it = ai.iterations[i];
+      const issues = it.issues || [];
+      const responses = it.user_responses || {};
+      for (const iss of issues) {
+        if (iss.phase_id !== phaseId) continue;
+        if (iss.question_id !== qid) continue;
+        const resp = responses[iss.id];
+        if (!resp) continue;
+        if (resp.kind !== "accept" && resp.kind !== "change") continue;
+        if (resp.applied_value == null || resp.applied_value === "") continue;
+        return { value: resp.applied_value, iterationIndex: i + 1, kind: iss.kind, response: resp.kind };
+      }
+    }
+    return null;
+  }
 
+  function _formatExplicitValue(question, v) {
     if (question.kind === "boolean") return v ? "Yes" : "No";
     if (question.kind === "list" && Array.isArray(v)) {
       return v.map(function (item) { return "- " + item; }).join("\n");
@@ -96,6 +121,46 @@
     }
     if (question.kind === "longtext") return String(v);
     return String(v);
+  }
+
+  // V2.2 (Pattern 2): three-step value fallback chain. Returns the markdown
+  // body for a question's answer, falling through:
+  //   1. explicit answered value
+  //   2. AI-applied value (Accept/Change recorded in ai_review)
+  //   3. rationale text (when value couldn't be parsed structurally)
+  //   4. (not answered)
+  // skipped / deferred always pass through as-is — those are explicit user
+  // signals and overriding them would lie about user intent.
+  function _formatAnswer(question, answer, state, phaseId) {
+    if (answer && answer.state === "skipped") return "_(skipped — sensible default applies)_";
+    if (answer && answer.state === "deferred") return "**ASK before deciding** _(user deferred this question)_";
+
+    const v = answer && answer.value;
+    const hasExplicit =
+      v != null && v !== "" && !(Array.isArray(v) && v.length === 0);
+    if (hasExplicit) return _formatExplicitValue(question, v);
+
+    // Step 2: AI-applied fallback.
+    if (state && phaseId) {
+      const ai = _findAiAppliedValue(state, phaseId, question.id);
+      if (ai) {
+        return _formatExplicitValue(question, ai.value)
+          + "\n\n_(applied via AI review iteration " + ai.iterationIndex
+          + " — " + ai.response + ". See `notes/ai-review.md`.)_";
+      }
+    }
+
+    // Step 3: rationale fallback. Common when AI Accept landed on a
+    // single_select / boolean / number question — V2.5 stashes the
+    // free-text suggestion in rationale rather than the structured value.
+    if (answer && answer.rationale && answer.rationale.trim()) {
+      const r = answer.rationale.trim();
+      return "_(no structured value; the user's rationale below is the effective answer:)_\n\n> "
+        + r.split("\n").join("\n> ");
+    }
+
+    // Step 4: (not answered).
+    return "_(not answered)_";
   }
 
   function generatePhaseDoc(state, taxonomy, phaseId) {
@@ -123,7 +188,7 @@
       lines.push("## " + q.text);
       if (q.guidance) lines.push("> " + q.guidance);
       lines.push("");
-      lines.push(_formatAnswer(q, a));
+      lines.push(_formatAnswer(q, a, state, phaseId));
       lines.push("");
       if (a && a.rationale) {
         lines.push("**Why this choice (user note):** " + a.rationale);
@@ -854,6 +919,24 @@
     return duplicates;
   }
 
+  // V2.2 (Pattern 3 + Pattern 6): a question is "effectively blank" if its
+  // answer has no value, no AI-applied value, no rationale text, and the
+  // user did not explicitly Skip or Defer. In detailed / simplified mode
+  // this surfaces as an unanswered question that should land in
+  // open-questions instead of falling through to "_(not answered)_" inside
+  // the structured doc with no signal anywhere else.
+  function _isEffectivelyBlank(state, phaseId, q) {
+    const a = _answer(state, phaseId, q.id);
+    if (a && (a.state === "skipped" || a.state === "deferred")) return false;
+    const v = a && a.value;
+    const hasExplicit =
+      v != null && v !== "" && !(Array.isArray(v) && v.length === 0);
+    if (hasExplicit) return false;
+    if (_findAiAppliedValue(state, phaseId, q.id)) return false;
+    if (a && a.rationale && a.rationale.trim()) return false;
+    return true;
+  }
+
   function generateMetaOpenQuestions(state, taxonomy, dataBundle) {
     const phases = (taxonomy && taxonomy.phases) || [];
     const items = [];
@@ -869,6 +952,28 @@
         if (a && a.state === "deferred") {
           items.push({ phase: phase, question: q, kind: "deferred", message: q.text });
         }
+      }
+    }
+
+    // V2.2 (Pattern 3 + Pattern 6): blank-in-detailed-mode funnel. The user
+    // opted into detailed (or simplified) mode but never answered some
+    // visible questions. If those questions also have no AI-applied value
+    // and no rationale text, they would otherwise show "_(not answered)_"
+    // in the structured doc with no signal anywhere — Claude's build
+    // session might silently invent a default. Surface every such gap here
+    // with explicit "ASK before deciding" framing.
+    const blankInDetailed = [];
+    for (const phase of phases) {
+      const ps = state.phases[phase.id] || {};
+      if (ps.mode === "skipped") continue;  // user explicitly skipped — no gap.
+      const visible = (phase.questions || []).filter(function (q) {
+        const m = q.modes || ["detailed", "simplified"];
+        if (ps.mode === "simplified") return m.indexOf("simplified") >= 0;
+        return m.indexOf("detailed") >= 0;
+      });
+      for (const q of visible) {
+        if (!_isEffectivelyBlank(state, phase.id, q)) continue;
+        blankInDetailed.push({ phase: phase, question: q, mode: ps.mode || "detailed" });
       }
     }
 
@@ -893,7 +998,8 @@
     lines.push("**ASK before deciding.** Every item below was explicitly deferred by the user, surfaces a stale answer that was not re-confirmed, or was flagged at generation time by a deterministic data-quality rule. Surface each one to the human before making a unilateral decision.");
     lines.push("");
 
-    const totalCount = items.length + ruleViolations.length + dupeComments.length + aiDeferrals.length;
+    const totalCount = items.length + ruleViolations.length + dupeComments.length
+      + aiDeferrals.length + blankInDetailed.length;
     if (totalCount === 0) {
       lines.push("_(none)_");
       return lines.join("\n");
@@ -960,6 +1066,34 @@
         }
       }
       lines.push("");
+    }
+
+    // V2.2 (Pattern 3 + Pattern 6): blank-in-detailed-mode questions. Grouped
+    // by phase so a phase that's effectively empty (every question blank)
+    // is visible at a glance — Claude can spot a wholly-skeleton phase and
+    // ask the user, rather than fabricating defaults question-by-question.
+    if (blankInDetailed.length > 0) {
+      lines.push("## Detailed-mode questions left unanswered");
+      lines.push("");
+      lines.push("The user opted into detailed (or simplified) mode for the phases below but left these questions blank. There is no AI-applied value, no rationale text, and no explicit Skip / Defer — they are gaps the user did not signal. Treat each one as **ASK before deciding**; the answer is not implicit anywhere else in the bundle.");
+      lines.push("");
+      // Group by phase for readability.
+      const byPhase = {};
+      const phaseOrder = [];
+      for (const item of blankInDetailed) {
+        const k = item.phase.id;
+        if (!byPhase[k]) { byPhase[k] = { phase: item.phase, mode: item.mode, items: [] }; phaseOrder.push(k); }
+        byPhase[k].items.push(item);
+      }
+      for (const pid of phaseOrder) {
+        const g = byPhase[pid];
+        lines.push("### Phase " + g.phase.number + " (" + g.phase.title + ") — " + g.mode + " mode");
+        lines.push("");
+        for (const item of g.items) {
+          lines.push("- " + item.question.text);
+        }
+        lines.push("");
+      }
     }
 
     return lines.join("\n");

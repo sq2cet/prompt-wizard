@@ -11,7 +11,7 @@ Python with click for argument parsing.
 
 ## Is there technology you must NOT use?
 
-_(empty)_
+_(not answered)_
 
 ## Where is this allowed to run?
 

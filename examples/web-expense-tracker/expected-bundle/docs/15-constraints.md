@@ -7,7 +7,7 @@
 ## Is there technology you must use?
 > Sometimes a stack is mandated by an existing system, a contract, or a personal preference.
 
-_(empty)_
+_(not answered)_
 
 ## Is there technology you must NOT use?
 

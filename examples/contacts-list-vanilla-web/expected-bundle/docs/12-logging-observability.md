@@ -15,7 +15,7 @@ Plain text — human-readable (`plain`)
 
 ## Beyond logs, what observability is in place?
 
-
+_(not answered)_
 
 ## Are personal data / secrets masked in logs?
 
