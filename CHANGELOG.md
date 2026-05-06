@@ -5,6 +5,94 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] — 2026-05-06
+
+The generator-coherence release. v2.0–v2.1 layered new features (AI
+review, local bridge); v2.2.0 hardens the bundle against seven cross-
+cutting bugs surfaced in an external review of an in-the-wild test bundle.
+Each fix is a generic generator-coherence improvement, not a one-off
+patch — the same fixes also harden the wizard against scenarios the
+external reviewer named (multi-entity domains, forced-tech `python +
+fastapi`, production quality bar, compliance-active builds).
+
+### Fixed
+
+- **Project-pointer poisoning when starting a new project** (data-corruption
+  bug). The v2.1.0 New project flow ran `State.commit(s => slug = "alpha")`
+  *before* `setActiveProject("alpha")`, so the first commit's autosave wrote
+  the new slug into the *previous* project's file. Files saved between
+  v2.1.0 and v2.2.0 may have stale `project_slug` fields; verify
+  `<filename>.json`'s slug matches its filename if you observed the symptom.
+  Fix is one line: `setActiveProject(null)` before reset/commit so the
+  pre-create commit routes to localStorage instead of clobbering the
+  previous file.
+
+### Added
+
+- **Value-fallback chain for structured docs** (Pattern 2). When a
+  question's answer has no explicit `value` (common when AI Accept lands
+  on a single_select / boolean — V2.5 stashes the suggestion in
+  `rationale` rather than overwriting the option). The doc generator now
+  reads through a 4-step chain: `value → AI-applied → rationale → (not
+  answered)`. Closes the V2.1 reviewer's bug where `data_store/storage_mechanism`
+  was Accept'd to "localStorage" but `docs/08-data-store.md` still said
+  `_(not answered)_`. The doc now renders the AI-applied value with an
+  "applied via AI review iteration N" footnote pointing at
+  `notes/ai-review.md`.
+- **Open-questions funnel for blanks-in-detailed-mode** (Patterns 3 + 6).
+  `meta/open-questions.md` gains a new `## Detailed-mode questions left
+  unanswered` section that surfaces every visible question with no value,
+  no AI fallback, no rationale, no Skip, and no Defer. Grouped by phase
+  for readability. Empty-skeleton phases (detailed mode but every question
+  blank) show their full question list here so Claude Code asks the human
+  rather than fabricating defaults question-by-question.
+- **Cross-doc link integrity** (Pattern 1). Meta generators now receive
+  the actually-emitted set of doc files. References to dropped docs (e.g.
+  `docs/11-error-handling.md` at `personal` quality bar) either rewrite
+  to a fallback wording or are dropped entirely. `meta/non-functional.md`
+  skips whole `## Error handling` / `## Logging` sections when the user
+  gave no answer AND the doc was collapsed, instead of pointing at
+  nothing. `meta/build-plan.md` and `meta/test-plan.md` pick verification
+  text from a 2 × 2 / 2 × 2 × 2 matrix of "which docs are present". Also
+  fixes a stale filename reference (`docs/12-logging-and-observability.md`
+  in the body — actual filename is `docs/12-logging-observability.md`).
+- **Synthesis docs derive from content, not template** (Pattern 4).
+  `meta/architecture.md`'s data-flow diagram now reflects which lifecycle
+  phases have content. A localStorage-only contact manager that never
+  engages Process / Exchange shows a smaller flow ("INPUT → STORE →
+  OUTPUT") plus a one-liner naming the omitted layers, instead of
+  printing the canonical 5-layer flow regardless. `meta/build-plan.md`
+  derives phases from MUST features *and* from user-described data
+  import / export flows in `docs/05` / `docs/09` (CSV / JSON / XML / Excel
+  detection). Closes reviewer's bug #4 ("import/export missing from
+  features+build-plan even when described in detail").
+- **AI review system prompt: explicit "What NOT to flag"** (Pattern 5).
+  Five suppression categories: wizard-completion advice, generic "could
+  be more detailed" notes, style / wording suggestions, wizard-enforced
+  rules already covered elsewhere, speculation about future build
+  states. Closing line: "Better to surface zero real issues than ten
+  synthesised ones." Closes reviewer's bug #5 (procedural meta-advice
+  recorded as `applied_value`).
+
+### Changed
+
+- `WIZARD_VERSION` bumped to `2.2.0`. Build artefact: 405 KB (+1 KB vs
+  v2.1.0).
+- All 7 example expected-bundle/ snapshots re-baked. Most diffs are the
+  new `meta/open-questions.md` section, the new build-plan import/export
+  phases when the example state contains them, and the version footer.
+- The `_formatAnswer` signature gained `state, phaseId` parameters. Only
+  one call site in the codebase. The new helpers `_findAiAppliedValue`,
+  `_isEffectivelyBlank`, `_seeDoc`, and `_dataIoActions` are exported
+  internally (not on the Generator surface).
+
+### Build & test
+
+- Snapshots remain at 7 examples × 27–28 files = 189 files asserted
+  byte-for-byte on every push. v2.2.0 surfaced new content in 5 of 7
+  examples' open-questions and 1 example's build-plan; the rest are
+  unchanged at the synthesis level.
+
 ## [2.1.0] — 2026-05-05
 
 The local-Claude-Code release. v2.0.0 required an Anthropic API key for the
