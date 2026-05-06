@@ -4366,6 +4366,15 @@
             window.alert("A project named '" + slug + "' already exists in this folder. Choose a different name.");
             return;
           }
+          // V2.2 bug fix: sever the active-file pointer FIRST. The previous
+          // ordering ran reset() and commit() while activeProjectSlug still
+          // pointed at the prior project, which made the very first commit
+          // (writing the new slug) actually overwrite the *previous*
+          // project's file with the new project's slug. Loading any saved
+          // file then showed the wrong header, because every "New project"
+          // had been silently corrupting the file behind the scenes.
+          // Order now: clear pointer → reset → commit → create file → set pointer.
+          State.setActiveProject(null);
           State.reset();
           State.commit(function (s) { s.project_slug = slug; });
           // Create the file immediately, even though it's empty — that's the
