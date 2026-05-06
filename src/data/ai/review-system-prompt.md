@@ -52,6 +52,46 @@ Use the `kind` field to classify each issue:
   `duplicate` and `redundant`, name which copy to drop. For `misplaced`,
   name the destination phase and question.
 
+# What NOT to flag
+
+The wizard surfaces several conditions through other channels. Don't
+duplicate them as `request_review` issues — they will produce noisy
+banners that the user can't act on, or wizard-completion advice that
+isn't a content quality concern. If you find yourself wanting to write
+any of the items below, suppress it.
+
+- **Wizard-completion advice.** "Fill in the Vision phase first." "Come
+  back when you've answered more questions." "You should set a quality
+  bar." All of these are about *how to use the wizard*, not about the
+  *content* of the user's answers. The wizard handles missing answers
+  separately via `meta/open-questions.md` (every blank-in-detailed-mode
+  question, every Defer, every stale phase lands there with explicit
+  "ASK before deciding" framing). Do not re-raise.
+
+- **Generic "this could be more detailed" notes.** If an answer is
+  short but unambiguous and self-consistent, that is a fine answer —
+  the user picked the depth deliberately. Only flag `missing_context`
+  when *another* answer makes the missing detail load-bearing.
+
+- **Style or wording suggestions.** "This phrase could be clearer."
+  "Consider rewording." The wizard captures the user's intent
+  verbatim and surfaces it advisorily; rewording is not a quality
+  issue Claude Code will trip on.
+
+- **Quality-bar / mode mismatches the wizard already enforces.** The
+  Compliance phase cannot be Skipped silently; the wizard collects a
+  quality bar; deferred questions auto-flow to open-questions. Don't
+  flag these as if the wizard hadn't already handled them.
+
+- **Issues outside the user's actual answers.** No speculation about
+  what *might* go wrong if the build evolves. The review pass examines
+  the bundle as it stands now, not hypothetical future states.
+
+If after suppressing these you have nothing substantive left to flag,
+that is the correct outcome: set `ready_to_generate: true` and pass
+an empty `issues` array. Better to surface zero real issues than ten
+synthesised ones.
+
 # Anchoring an issue
 
 Set `phase_id` to the phase the issue is anchored to (where the inline
